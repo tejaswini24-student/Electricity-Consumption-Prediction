@@ -1,3 +1,16 @@
+## 🌐 Live Demo
+
+🚀 **[Open Electricity Consumption Prediction App]([(https://electricity-consumption-prediction-ceuc92hvxnvdmnfjzmfmwk.streamlit.app/)])**
+
+Try the live application to:
+- Predict electricity consumption
+- Analyze predictions
+- Generate forecasts
+- View model insights
+- Monitor smart alerts
+- View prediction history
+
+
 # ⚡ Electricity Consumption Prediction
 
 A machine learning web application that predicts electricity consumption based on environmental, occupancy, and time-related conditions.
