@@ -1,1684 +1,782 @@
 import streamlit as st
 import pandas as pd
 import joblib
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from streamlit_option_menu import option_menu
 
+st.set_page_config(
+    page_title="Electricity AI",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-# ============================================================
-# LOAD MODEL AND PREPROCESSOR
-# ============================================================
+# -------------------- LOAD MODEL --------------------
+@st.cache_resource
+def load_model():
+    return joblib.load("xgboost_electricity_model.pkl")
 
-model = joblib.load("xgboost_electricity_model.pkl")
+@st.cache_resource
+def load_preprocessor():
+    return joblib.load("xgboost_preprocessor.pkl")
 
-preprocessor = joblib.load("xgboost_preprocessor.pkl")
+try:
+    model = load_model()
+    preprocessor = load_preprocessor()
+except Exception as e:
+    st.error("Unable to load the XGBoost model or preprocessor.")
+    st.info("Make sure both .pkl files are in the same folder as app.py.")
+    with st.expander("Technical details"):
+        st.code(str(e))
+    st.stop()
 
-
-# ============================================================
-# PREDICTION FUNCTION
-# ============================================================
-
-def predict_consumption(
-    temperature,
-    humidity,
-    occupancy,
-    hour,
-    day,
-    month,
-    day_of_week,
-    is_weekend,
-    season,
-    is_peak_hour
-):
-
-    weekend_value = 1 if is_weekend == "Yes" else 0
-    peak_value = 1 if is_peak_hour == "Yes" else 0
-
-    input_data = pd.DataFrame({
-
-        "temperature_c": [temperature],
-
-        "humidity_percent": [humidity],
-
-        "occupancy_percent": [occupancy],
-
-        "hour": [hour],
-
-        "day": [day],
-
-        "month": [month],
-
-        "day_of_week": [day_of_week],
-
-        "is_weekend": [weekend_value],
-
-        "season": [season],
-
-        "is_peak_hour": [peak_value]
-    })
-
-    processed_input = preprocessor.transform(input_data)
-
-    prediction = model.predict(processed_input)[0]
-
-    return float(prediction)
-
-
-# ============================================================
-# PREDICTION HISTORY
-# ============================================================
-
+# -------------------- SESSION STATE --------------------
 if "prediction_history" not in st.session_state:
     st.session_state.prediction_history = []
 
+# -------------------- THEME DEFINITIONS --------------------
+# Kept as a dict (rather than hardcoding hex codes throughout the file)
+# even with only one theme now, so every color the app uses still comes
+# from one place - the CSS block below just reads THEMES["dark"][...].
+THEMES = {
+    "dark": dict(
+        bg=(
+            "radial-gradient(circle at 10% 0%, rgba(14,165,233,.10), transparent 28%),"
+            "radial-gradient(circle at 90% 10%, rgba(59,130,246,.10), transparent 25%),"
+            "linear-gradient(135deg,#07111f 0%,#0b1220 52%,#101d36 100%)"
+        ),
+        text="#f8fafc", muted="#94a3b8",
+        sidebar_bg="linear-gradient(180deg,#020617,#081426)", sidebar_border="rgba(148,163,184,.14)",
+        card_bg="rgba(15,23,42,.70)", card_border="rgba(148,163,184,.12)", card_shadow="0 10px 35px rgba(0,0,0,.16)",
+        hero_bg="linear-gradient(135deg,rgba(14,165,233,.12),rgba(30,41,59,.40))",
+        hero_border="rgba(56,189,248,.18)", hero_shadow="0 18px 50px rgba(0,0,0,.18)",
+        section_bg="rgba(15,23,42,.62)", section_border="rgba(148,163,184,.10)",
+        empty_bg="rgba(15,23,42,.55)", empty_border="rgba(148,163,184,.25)",
+        metric_bg="rgba(15,23,42,.68)", metric_border="rgba(148,163,184,.11)",
+        accent="#38bdf8", accent2="#2563eb",
+        chart_text="#e2e8f0", chart_grid="rgba(148,163,184,.15)",
+        tooltip_bg="#0f172a", tooltip_text="#f8fafc",
+    ),
+}
 
-# ============================================================
-# PAGE CONFIGURATION
-# ============================================================
+STATUS_STYLES = {
+    "dark": {
+        "default":  dict(bg="linear-gradient(135deg,rgba(14,165,233,.16),rgba(37,99,235,.10))", border="rgba(56,189,248,.30)", number="#38bdf8"),
+        "low":      dict(bg="linear-gradient(135deg,rgba(34,197,94,.16),rgba(21,128,61,.10))",  border="rgba(34,197,94,.35)",  number="#22c55e"),
+        "moderate": dict(bg="linear-gradient(135deg,rgba(234,179,8,.16),rgba(180,83,9,.10))",   border="rgba(234,179,8,.35)",  number="#eab308"),
+        "high":     dict(bg="linear-gradient(135deg,rgba(239,68,68,.16),rgba(153,27,27,.10))",  border="rgba(239,68,68,.35)",  number="#ef4444"),
+    },
+}
 
-st.set_page_config(
-    page_title="Electricity Consumption Prediction",
-    page_icon="⚡",
-    layout="wide"
-)
-
-
-# ============================================================
-# SIDEBAR
-# ============================================================
+# -------------------- SIDEBAR --------------------
+PAGES = [
+    "Dashboard", "XGBoost Prediction", "Energy Impact Simulator",
+    "Analytics", "Forecast", "Model Insights", "Smart Alerts", "Prediction History",
+]
+PAGE_ICONS = [
+    "house", "cpu", "shuffle", "bar-chart-line",
+    "cloud-sun", "diagram-3", "exclamation-triangle", "clock-history",
+]
 
 with st.sidebar:
-
-    st.title("⚡ Electricity")
-    st.title("Consumption Prediction")
-
+    st.markdown(
+        '<div style="text-align:center;padding:12px 0 10px;">'
+        '<div style="font-size:46px;">⚡</div>'
+        '<div style="font-size:24px;font-weight:800;color:#38bdf8;">Electricity AI</div>'
+        '<div style="color:#94a3b8;font-size:13px;margin-top:5px;">Consumption Prediction</div>'
+        '</div>',
+        unsafe_allow_html=True
+    )
     st.divider()
+    page = option_menu(
+        menu_title=None,
+        options=PAGES,
+        icons=PAGE_ICONS,
+        default_index=0,
+        styles={
+            "container": {"padding": "0", "background-color": "transparent"},
+            "icon": {"color": "#38bdf8", "font-size": "16px"},
+            "nav-link": {
+                "font-size": "14px", "text-align": "left", "margin": "3px 0",
+                "border-radius": "10px", "padding": "10px 12px",
+            },
+            "nav-link-selected": {
+                "background-color": "rgba(56,189,248,.16)",
+                "color": "#38bdf8", "font-weight": "700",
+            },
+        },
+    )
+    st.divider()
+    st.caption("AI-powered electricity monitoring")
 
-    page = st.radio(
-        "Navigation",
-        [
-            "🏠 Dashboard",
-            "🤖 XGBoost Prediction",
-            "🔬 Energy Impact Simulator",
-            "📊 Analytics",
-            "🔮 Forecast",
-            "🧠 Model Insights",
-            "🚨 Smart Alerts",
-            "📋 Prediction History"
-        ]
+# The light/dark toggle was removed - it caused plain Streamlit text
+# (which doesn't go through our custom CSS classes) to render invisible
+# in light mode. The app is fixed back to the single dark theme that
+# was working correctly.
+t = THEMES["dark"]
+s = STATUS_STYLES["dark"]
+
+# These four are read by every Plotly chart further down via style_fig(),
+# so switching theme_key above automatically re-colors every chart too.
+COLOR_BG = "rgba(0,0,0,0)"
+COLOR_TEXT = t["chart_text"]
+COLOR_GRID = t["chart_grid"]
+COLOR_ACCENT = t["accent"]
+COLOR_ACCENT2 = t["accent2"]
+
+# -------------------- PROFESSIONAL UI --------------------
+st.markdown(f"""
+<style>
+.stApp {{
+    background: {t['bg']};
+    color:{t['text']};
+}}
+.block-container {{
+    max-width:1500px;
+    padding-top:3.5rem;
+    padding-bottom:2rem;
+}}
+/* Streamlit's built-in toolbar (hamburger/rerun icons) floats over the
+   page at a fixed position. Giving it a solid background matching the
+   theme (instead of the default transparent one) stops content from
+   looking like it's "poking through" behind it as you scroll. */
+header[data-testid="stHeader"] {{
+    background:{t['bg']};
+}}
+section[data-testid="stSidebar"] {{
+    background:{t['sidebar_bg']};
+    border-right:1px solid {t['sidebar_border']};
+}}
+section[data-testid="stSidebar"] * {{
+    color:{t['text']};
+}}
+h1,h2,h3,h4 {{
+    color:{t['text']} !important;
+}}
+.small-muted {{
+    color:{t['muted']};
+    font-size:15px;
+}}
+.hero {{
+    padding:28px 30px;
+    border:1px solid {t['hero_border']};
+    border-radius:24px;
+    background:{t['hero_bg']};
+    box-shadow:{t['hero_shadow']};
+    margin-bottom:22px;
+}}
+.hero-title {{
+    font-size:38px;
+    font-weight:800;
+    letter-spacing:-1px;
+    color:{t['text']};
+}}
+.hero-accent {{
+    color:{t['accent']};
+}}
+.hero-text {{
+    color:{t['muted']};
+    font-size:16px;
+    margin-top:8px;
+}}
+.card {{
+    background:{t['card_bg']};
+    border:1px solid {t['card_border']};
+    border-radius:18px;
+    padding:20px;
+    min-height:130px;
+    box-shadow:{t['card_shadow']};
+}}
+.card-icon {{
+    font-size:27px;
+    margin-bottom:10px;
+}}
+.card-label {{
+    color:{t['muted']};
+    font-size:13px;
+}}
+.card-value {{
+    color:{t['text']};
+    font-size:25px;
+    font-weight:750;
+    margin-top:4px;
+}}
+.card-trend {{
+    font-size:13px;
+    margin-top:6px;
+    font-weight:600;
+}}
+.card-trend.up {{ color:{s['high']['number']}; }}
+.card-trend.down {{ color:{s['low']['number']}; }}
+.card-trend.flat {{ color:{t['muted']}; }}
+.result-card {{
+    border-radius:24px;
+    padding:30px;
+    text-align:center;
+    margin:20px 0;
+    border:1px solid {s['default']['border']};
+    background:{s['default']['bg']};
+}}
+.result-card.low {{ border-color:{s['low']['border']}; background:{s['low']['bg']}; }}
+.result-card.moderate {{ border-color:{s['moderate']['border']}; background:{s['moderate']['bg']}; }}
+.result-card.high {{ border-color:{s['high']['border']}; background:{s['high']['bg']}; }}
+.result-label {{
+    color:{t['muted']};
+    font-size:15px;
+}}
+.result-number {{
+    font-size:48px;
+    font-weight:850;
+    margin:6px 0;
+    color:{s['default']['number']};
+}}
+.result-card.low .result-number {{ color:{s['low']['number']}; }}
+.result-card.moderate .result-number {{ color:{s['moderate']['number']}; }}
+.result-card.high .result-number {{ color:{s['high']['number']}; }}
+.result-status {{
+    color:{t['muted']};
+    font-size:18px;
+}}
+.section-card {{
+    background:{t['section_bg']};
+    border:1px solid {t['section_border']};
+    border-radius:18px;
+    padding:22px;
+    margin-bottom:18px;
+}}
+.section-card-title {{
+    font-size:20px;
+    font-weight:700;
+    color:{t['text']};
+    margin-bottom:6px;
+}}
+.section-card-body {{
+    color:{t['text']};
+    font-size:15px;
+    line-height:1.6;
+}}
+.empty-state {{
+    text-align:center;
+    padding:46px 20px;
+    background:{t['empty_bg']};
+    border:1px dashed {t['empty_border']};
+    border-radius:18px;
+}}
+.empty-state .icon {{ font-size:40px; margin-bottom:10px; }}
+.empty-state .title {{ font-size:17px; font-weight:700; color:{t['text']}; }}
+.empty-state .subtitle {{ font-size:14px; color:{t['muted']}; margin-top:4px; }}
+.stButton > button {{
+    width:100%;
+    min-height:46px;
+    border-radius:12px;
+    font-weight:700;
+}}
+[data-testid="stMetric"] {{
+    background:{t['metric_bg']};
+    border:1px solid {t['metric_border']};
+    border-radius:15px;
+    padding:15px;
+}}
+[data-testid="stDataFrame"] {{
+    border-radius:14px;
+    overflow:hidden;
+}}
+div[data-baseweb="select"] > div,
+div[data-baseweb="input"] > div {{
+    border-radius:10px;
+}}
+</style>
+""", unsafe_allow_html=True)
+
+# -------------------- HELPERS --------------------
+FEATURE_NAMES = [
+    "Temperature", "Humidity", "Occupancy", "Hour", "Day",
+    "Month", "Day of Week", "Weekend", "Season", "Peak Hour"
+]
+
+SEASONS = ["Winter", "Spring", "Summer", "Autumn"]
+
+def predict_consumption(
+    temperature, humidity, occupancy, hour, day, month,
+    day_of_week, is_weekend, season, is_peak_hour
+):
+    input_data = pd.DataFrame({
+        "temperature_c": [temperature],
+        "humidity_percent": [humidity],
+        "occupancy_percent": [occupancy],
+        "hour": [hour],
+        "day": [day],
+        "month": [month],
+        "day_of_week": [day_of_week],
+        "is_weekend": [1 if is_weekend == "Yes" else 0],
+        "season": [season],
+        "is_peak_hour": [1 if is_peak_hour == "Yes" else 0],
+    })
+    processed = preprocessor.transform(input_data)
+    return float(model.predict(processed)[0])
+
+def status_for(value):
+    """Returns a (label, css_class) pair so both the emoji text and the
+    result-card color are always derived from the same thresholds -
+    change the numbers once here and every page updates consistently."""
+    if value < 5:
+        return "🟢 Low Consumption", "low"
+    if value < 8:
+        return "🟡 Moderate Consumption", "moderate"
+    return "🔴 High Consumption", "high"
+
+def add_history(values, prediction):
+    st.session_state.prediction_history.append({
+        "Temperature": values[0],
+        "Humidity": values[1],
+        "Occupancy": values[2],
+        "Hour": values[3],
+        "Day": values[4],
+        "Month": values[5],
+        "Day of Week": values[6],
+        "Weekend": values[7],
+        "Peak Hour": values[9],
+        "Season": values[8],
+        "Prediction (kWh)": round(prediction, 2),
+    })
+
+def section_title(title, subtitle=None):
+    st.subheader(title)
+    if subtitle:
+        st.markdown(f'<div class="small-muted">{subtitle}</div>', unsafe_allow_html=True)
+
+def empty_state(icon, title, subtitle):
+    st.markdown(
+        f'<div class="empty-state"><div class="icon">{icon}</div>'
+        f'<div class="title">{title}</div>'
+        f'<div class="subtitle">{subtitle}</div></div>',
+        unsafe_allow_html=True
     )
 
-    st.divider()
-
-    st.caption("⚡ Electricity Consumption Prediction")
-
-
-# ============================================================
-# DASHBOARD
-# ============================================================
-
-if page == "🏠 Dashboard":
-
-    st.title("🏠 Dashboard")
-
-    st.write(
-        "Welcome to the Electricity Consumption Prediction System."
+def style_fig(fig, y_title="Consumption (kWh)", x_title=None):
+    """Applies one consistent theme to every Plotly chart. Because this
+    reads the module-level COLOR_* variables (which are set from the
+    THEMES dict based on the sidebar toggle), charts automatically
+    switch between light and dark styling along with the rest of the app."""
+    fig.update_layout(
+        paper_bgcolor=COLOR_BG,
+        plot_bgcolor=COLOR_BG,
+        font=dict(color=COLOR_TEXT),
+        margin=dict(l=10, r=10, t=40, b=10),
+        hoverlabel=dict(bgcolor=t["tooltip_bg"], font_color=t["tooltip_text"]),
     )
+    fig.update_xaxes(showgrid=False, title=x_title, color=COLOR_TEXT)
+    fig.update_yaxes(showgrid=True, gridcolor=COLOR_GRID, title=y_title, color=COLOR_TEXT)
+    return fig
 
-    st.divider()
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric(
-            "🤖 Model",
-            "XGBoost"
-        )
-
-    with col2:
-        st.metric(
-            "⚡ Prediction",
-            "Available"
-        )
-
-    with col3:
-        st.metric(
-            "📊 Analytics",
-            "Available"
-        )
-
-    with col4:
-        st.metric(
-            "🚨 Smart Alerts",
-            "Active"
-        )
-
-    st.divider()
-
-    st.subheader("⚡ Electricity Consumption Prediction")
-
-    st.info(
-        "Use the XGBoost Prediction section from the sidebar "
-        "to predict electricity consumption."
-    )
-
-
-# ============================================================
-# XGBOOST PREDICTION
-# ============================================================
-
-elif page == "🤖 XGBoost Prediction":
-
-    st.title("🤖 XGBoost Prediction")
-
-    st.write(
-        "Enter the required details to predict electricity consumption."
-    )
-
-    st.divider()
-
-    st.subheader("Enter Input Details")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
+def render_condition_inputs(key_prefix, defaults=None, include_hour=True):
+    """One shared input form used by the Prediction, Simulator and
+    Forecast pages instead of copy-pasting the same 8-10 widgets three
+    times. Each call needs a unique key_prefix (e.g. "cur", "sim") so
+    Streamlit doesn't raise a duplicate-key error when the same form is
+    drawn twice on one page. Returns a dict you can pass straight into
+    predict_consumption(**values)."""
+    d = defaults or {}
+    c1, c2 = st.columns(2)
+    with c1:
         temperature = st.number_input(
-            "Temperature (°C)",
-            value=25.0
+            "🌡️ Temperature (°C)", value=d.get("temperature", 25.0), key=f"{key_prefix}_temp"
         )
-
         humidity = st.number_input(
-            "Humidity (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=60.0
+            "💧 Humidity (%)", 0.0, 100.0, d.get("humidity", 60.0), key=f"{key_prefix}_hum"
         )
-
         occupancy = st.number_input(
-            "Occupancy (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=50.0
+            "🏠 Occupancy (%)", 0.0, 100.0, d.get("occupancy", 50.0), key=f"{key_prefix}_occ"
         )
-
-        hour = st.number_input(
-            "Hour",
-            min_value=0,
-            max_value=23,
-            value=12
-        )
-
-        day = st.number_input(
-            "Day",
-            min_value=1,
-            max_value=31,
-            value=1
-        )
-
-    with col2:
-
-        month = st.number_input(
-            "Month",
-            min_value=1,
-            max_value=12,
-            value=1
-        )
-
+        hour = None
+        if include_hour:
+            hour = st.number_input(
+                "🕐 Hour", 0, 23, d.get("hour", 12), key=f"{key_prefix}_hour"
+            )
+        day = st.number_input("📅 Day", 1, 31, d.get("day", 1), key=f"{key_prefix}_day")
+    with c2:
+        month = st.number_input("📆 Month", 1, 12, d.get("month", 1), key=f"{key_prefix}_month")
         day_of_week = st.number_input(
-            "Day of Week (0 = Monday, 6 = Sunday)",
-            min_value=0,
-            max_value=6,
-            value=3
+            "📅 Day of Week (0 = Monday, 6 = Sunday)", 0, 6, d.get("day_of_week", 3),
+            key=f"{key_prefix}_dow"
         )
-
         is_weekend = st.selectbox(
-            "Is Weekend?",
-            ["No", "Yes"]
+            "📅 Is Weekend?", ["No", "Yes"],
+            index=["No", "Yes"].index(d.get("is_weekend", "No")), key=f"{key_prefix}_weekend"
         )
-
         is_peak_hour = st.selectbox(
-            "Is Peak Hour?",
-            ["No", "Yes"]
+            "⏰ Is Peak Hour?", ["No", "Yes"],
+            index=["No", "Yes"].index(d.get("is_peak_hour", "No")), key=f"{key_prefix}_peak"
         )
-
         season = st.selectbox(
-            "🌤️ Season",
-            ["Winter", "Spring", "Summer", "Autumn"]
+            "🌤️ Season", SEASONS, index=SEASONS.index(d.get("season", "Winter")),
+            key=f"{key_prefix}_season"
         )
+    values = dict(
+        temperature=temperature, humidity=humidity, occupancy=occupancy,
+        day=day, month=month, day_of_week=day_of_week,
+        is_weekend=is_weekend, season=season, is_peak_hour=is_peak_hour,
+    )
+    if include_hour:
+        values["hour"] = hour
+    return values
 
-    weekend_value = 1 if is_weekend == "Yes" else 0
-
-    peak_value = 1 if is_peak_hour == "Yes" else 0
-
-    st.divider()
-
-    if st.button(
-        "⚡ Predict Electricity Consumption",
-        use_container_width=True
-    ):
-
-        input_data = pd.DataFrame({
-
-            "temperature_c": [temperature],
-
-            "humidity_percent": [humidity],
-
-            "occupancy_percent": [occupancy],
-
-            "hour": [hour],
-
-            "day": [day],
-
-            "month": [month],
-
-            "day_of_week": [day_of_week],
-
-            "is_weekend": [weekend_value],
-
-            "season": [season],
-
-            "is_peak_hour": [peak_value]
-        })
-
-        processed_input = preprocessor.transform(input_data)
-
-        prediction = model.predict(processed_input)[0]
-
-        # Save prediction to history
-        st.session_state.prediction_history.append({
-           "Temperature": temperature,
-            "Humidity": humidity,
-            "Occupancy": occupancy,
-            "Hour": hour,
-            "Day": day,
-            "Month": month,
-            "Day of Week": day_of_week,
-            "Weekend": is_weekend,
-            "Peak Hour": is_peak_hour,
-            "Season": season,
-            "Prediction (kWh)": round(float(prediction), 2)
-        })
-
-        st.success("Prediction completed successfully!")
-
-        st.metric(
-        label="Predicted Electricity Consumption",
-        value=f"{prediction:.2f} kWh"
+# -------------------- DASHBOARD --------------------
+if page == "Dashboard":
+    st.markdown(
+        '<div class="hero">'
+        '<div class="hero-title">⚡ Electricity <span class="hero-accent">AI</span></div>'
+        '<div class="hero-text">Smart electricity consumption prediction powered by XGBoost regression.</div>'
+        '</div>',
+        unsafe_allow_html=True
     )
 
+    history = st.session_state.prediction_history
+    latest = history[-1]["Prediction (kWh)"] if history else None
+    previous = history[-2]["Prediction (kWh)"] if len(history) > 1 else None
 
-# ============================================================
-# ENERGY IMPACT SIMULATOR
-# ============================================================
-
-elif page == "🔬 Energy Impact Simulator":
-
-    st.title("🔬 Energy Impact Simulator")
-
-    st.write(
-        "Explore how changing electricity-use conditions "
-        "could affect predicted consumption."
-    )
-
-    st.info(
-        "💡 Change one or more conditions and compare the "
-        "new scenario with the current scenario."
-    )
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # CURRENT SCENARIO
-    # --------------------------------------------------------
-
-    st.subheader("📌 Current Scenario")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        current_temperature = st.number_input(
-            "🌡️ Current Temperature (°C)",
-            value=25.0,
-            key="sim_current_temperature"
-        )
-
-        current_humidity = st.number_input(
-            "💧 Current Humidity (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=60.0,
-            key="sim_current_humidity"
-        )
-
-        current_occupancy = st.number_input(
-            "🏠 Current Occupancy (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=50.0,
-            key="sim_current_occupancy"
-        )
-
-        current_hour = st.number_input(
-            "🕐 Current Hour",
-            min_value=0,
-            max_value=23,
-            value=12,
-            key="sim_current_hour"
-        )
-
-        current_day = st.number_input(
-            "📅 Current Day",
-            min_value=1,
-            max_value=31,
-            value=1,
-            key="sim_current_day"
-        )
-
-    with col2:
-
-        current_month = st.number_input(
-            "📆 Current Month",
-            min_value=1,
-            max_value=12,
-            value=1,
-            key="sim_current_month"
-        )
-
-        current_day_of_week = st.number_input(
-            "📅 Current Day of Week (0 = Monday)",
-            min_value=0,
-            max_value=6,
-            value=3,
-            key="sim_current_day_of_week"
-        )
-
-        current_weekend = st.selectbox(
-            "Weekend?",
-            ["No", "Yes"],
-            key="sim_current_weekend"
-        )
-
-        current_peak = st.selectbox(
-            "Peak Hour?",
-            ["No", "Yes"],
-            key="sim_current_peak"
-        )
-
-        current_season = st.selectbox(
-            "🌤️ Current Season",
-            ["Winter", "Spring", "Summer", "Autumn"],
-            key="sim_current_season"
-        )
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # SIMULATED SCENARIO
-    # --------------------------------------------------------
-
-    st.subheader("🔬 Simulated Scenario")
-
-    st.write(
-        "Now change the conditions to test a different "
-        "energy-use scenario."
-    )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        scenario_temperature = st.number_input(
-            "🌡️ Scenario Temperature (°C)",
-            value=25.0,
-            key="sim_scenario_temperature"
-        )
-
-        scenario_humidity = st.number_input(
-            "💧 Scenario Humidity (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=60.0,
-            key="sim_scenario_humidity"
-        )
-
-        scenario_occupancy = st.number_input(
-            "🏠 Scenario Occupancy (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=80.0,
-            key="sim_scenario_occupancy"
-        )
-
-        scenario_hour = st.number_input(
-            "🕐 Scenario Hour",
-            min_value=0,
-            max_value=23,
-            value=18,
-            key="sim_scenario_hour"
-        )
-
-        scenario_day = st.number_input(
-            "📅 Scenario Day",
-            min_value=1,
-            max_value=31,
-            value=1,
-            key="sim_scenario_day"
-        )
-
-    with col2:
-
-        scenario_month = st.number_input(
-            "📆 Scenario Month",
-            min_value=1,
-            max_value=12,
-            value=1,
-            key="sim_scenario_month"
-        )
-
-        scenario_day_of_week = st.number_input(
-            "📅 Scenario Day of Week (0 = Monday)",
-            min_value=0,
-            max_value=6,
-            value=3,
-            key="sim_scenario_day_of_week"
-        )
-
-        scenario_weekend = st.selectbox(
-            "Scenario Weekend?",
-            ["No", "Yes"],
-            key="sim_scenario_weekend"
-        )
-
-        scenario_peak = st.selectbox(
-            "Scenario Peak Hour?",
-            ["No", "Yes"],
-            key="sim_scenario_peak"
-        )
-
-        scenario_season = st.selectbox(
-            "🌤️ Scenario Season",
-            ["Winter", "Spring", "Summer", "Autumn"],
-            key="sim_scenario_season"
-        )
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # SIMULATE
-    # --------------------------------------------------------
-
-    if st.button(
-        "🔬 Simulate Energy Impact",
-        use_container_width=True
-    ):
-
-        current_prediction = predict_consumption(
-            current_temperature,
-            current_humidity,
-            current_occupancy,
-            current_hour,
-            current_day,
-            current_month,
-            current_day_of_week,
-            current_weekend,
-            current_season,
-            current_peak
-        )
-
-        scenario_prediction = predict_consumption(
-            scenario_temperature,
-            scenario_humidity,
-            scenario_occupancy,
-            scenario_hour,
-            scenario_day,
-            scenario_month,
-            scenario_day_of_week,
-            scenario_weekend,
-            scenario_season,
-            scenario_peak
-        )
-
-        difference = scenario_prediction - current_prediction
-
-        if current_prediction != 0:
-            percentage_change = (
-                difference / current_prediction
-            ) * 100
+    trend_html = ""
+    if latest is not None and previous is not None:
+        diff = latest - previous
+        if diff > 0:
+            trend_html = f'<div class="card-trend up">▲ {diff:+.2f} kWh vs last</div>'
+        elif diff < 0:
+            trend_html = f'<div class="card-trend down">▼ {diff:+.2f} kWh vs last</div>'
         else:
-            percentage_change = 0
+            trend_html = '<div class="card-trend flat">— no change vs last</div>'
 
-        st.success(
-            "Simulation completed successfully!"
+    cols = st.columns(4)
+    cards = [
+        ("🤖", "Prediction Model", "XGBoost", ""),
+        ("⚡", "Latest Prediction", f"{latest:.2f} kWh" if latest is not None else "Ready", trend_html),
+        ("📊", "Predictions Made", str(len(history)), ""),
+        ("🚨", "Monitoring", "Active", ""),
+    ]
+    for col, (icon, label, value, trend) in zip(cols, cards):
+        with col:
+            st.markdown(
+                f'<div class="card"><div class="card-icon">{icon}</div>'
+                f'<div class="card-label">{label}</div>'
+                f'<div class="card-value">{value}</div>{trend}</div>',
+                unsafe_allow_html=True
+            )
+
+    st.write("")
+    left, right = st.columns([1.35, 1])
+
+    with left:
+        # Everything for this card - heading, subtitle, and body text - is
+        # built into ONE string and passed to a SINGLE st.markdown call.
+        # Splitting an opening <div> and closing </div> across separate
+        # st.markdown/st.subheader calls doesn't nest them: each call
+        # renders as its own independent block, so the div ends up empty
+        # and the real content spills out underneath it, unstyled.
+        st.markdown(
+            '<div class="section-card">'
+            '<div class="section-card-title">🚀 Quick Start</div>'
+            '<div class="small-muted" style="margin-bottom:10px;">Make a prediction in three simple steps.</div>'
+            '<div class="section-card-body">'
+            '1. Open <b>XGBoost Prediction</b> from the sidebar.<br>'
+            '2. Enter temperature, humidity, occupancy and time conditions.<br>'
+            '3. Select <b>Predict Electricity Consumption</b> to see the estimate.'
+            '</div></div>',
+            unsafe_allow_html=True
         )
 
-        st.divider()
-
-        # ----------------------------------------------------
-        # COMPARISON
-        # ----------------------------------------------------
-
-        st.subheader("📊 Scenario Comparison")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-
-            st.metric(
-                "Current Prediction",
-                f"{current_prediction:.2f} kWh"
-            )
-
-        with col2:
-
-            st.metric(
-                "Simulated Prediction",
-                f"{scenario_prediction:.2f} kWh"
-            )
-
-        with col3:
-
-            st.metric(
-                "Impact",
-                f"{difference:+.2f} kWh",
-                delta=f"{percentage_change:+.1f}%"
-            )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # IMPACT ANALYSIS
-        # ----------------------------------------------------
-
-        st.subheader("💡 Energy Impact Analysis")
-
-        if difference > 0:
-
-            st.warning(
-                f"⚠️ The simulated scenario increases predicted "
-                f"electricity consumption by "
-                f"**{difference:.2f} kWh** "
-                f"({percentage_change:.1f}%)."
-            )
-
-            st.write(
-                "The changed conditions result in a higher "
-                "predicted electricity demand."
-            )
-
-        elif difference < 0:
-
-            reduction = abs(difference)
-
-            st.success(
-                f"🌱 The simulated scenario reduces predicted "
-                f"electricity consumption by "
-                f"**{reduction:.2f} kWh** "
-                f"({abs(percentage_change):.1f}%)."
-            )
-
-            st.write(
-                "The simulated conditions show a lower "
-                "predicted electricity demand."
-            )
-
-        else:
-
-            st.info(
-                "ℹ️ The simulated scenario produces the same "
-                "predicted electricity consumption."
-            )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # STATIC ENERGY IMPACT GRAPH
-        # ----------------------------------------------------
-
-        st.subheader("📈 Energy Impact Visualization")
-
-        # Import matplotlib only for this graph
-        import matplotlib.pyplot as plt
-        from io import BytesIO
-
-        # Create figure
-        fig, ax = plt.subplots(figsize=(8, 4.5))
-
-        scenarios = ["Current", "Simulated"]
-
-        values = [
-            current_prediction,
-            scenario_prediction
-        ]
-
-        # Create bars
-        bars = ax.bar(
-            scenarios,
-            values,
-            width=0.5
+    with right:
+        st.markdown(
+            '<div class="section-card">'
+            '<div class="section-card-title">🧠 What the system uses</div>'
+            '<div class="section-card-body">'
+            'Environmental conditions, occupancy, time and calendar-related features '
+            'are prepared through the saved preprocessor and passed to the trained XGBoost model.'
+            '</div></div>',
+            unsafe_allow_html=True
         )
 
-        # Add values above bars
-        for bar, value in zip(bars, values):
+    st.divider()
+    section_title("📌 System Overview")
+    a, b, c = st.columns(3)
+    with a:
+        st.info("**Regression**\n\nThe model predicts a continuous electricity-consumption value.")
+    with b:
+        st.info("**XGBoost**\n\nThe trained model learns relationships among structured input features.")
+    with c:
+        st.info("**Streamlit**\n\nThe model is presented through an interactive browser application.")
 
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height(),
-                f"{value:.2f} kWh",
-                ha="center",
-                va="bottom",
-                fontsize=12,
-                fontweight="bold"
-            )
-
-        # Title
-        ax.set_title(
-            "Current vs Simulated Electricity Consumption",
-            fontsize=14,
-            fontweight="bold"
-        )
-
-        # Y-axis label
-        ax.set_ylabel(
-            "Electricity Consumption (kWh)"
-        )
-
-        # Give some space above the highest bar
-        ax.set_ylim(
-            0,
-            max(values) * 1.25
-        )
-
-        # Horizontal grid
-        ax.grid(
-            axis="y",
-            alpha=0.25
-        )
-
-        # Remove unnecessary borders
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-
-        plt.tight_layout()
-
-        # Convert graph into a PNG image
-        image_buffer = BytesIO()
-
-        fig.savefig(
-            image_buffer,
-            format="png",
-            dpi=150,
-            bbox_inches="tight"
-        )
-
-        image_buffer.seek(0)
-
-        # Display as a FIXED IMAGE
-        st.image(
-            image_buffer,
-            use_container_width=True
-        )
-
-        # Close figure
-        plt.close(fig)
-
-        # ----------------------------------------------------
-        # IMPACT SUMMARY
-        # ----------------------------------------------------
-
-        st.subheader("⚡ Impact Summary")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-
-            st.metric(
-                "Current",
-                f"{current_prediction:.2f} kWh"
-            )
-
-        with col2:
-
-            st.metric(
-                "Simulated",
-                f"{scenario_prediction:.2f} kWh"
-            )
-
-        with col3:
-
-            st.metric(
-                "Change",
-                f"{difference:+.2f} kWh",
-                delta=f"{percentage_change:+.1f}%"
-            )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # WHAT CHANGED?
-        # ----------------------------------------------------
-
-        st.subheader("🧠 What Changed?")
-
-        st.write(
-            "The simulated scenario is compared with the current "
-            "scenario using the trained XGBoost model."
-        )
-
-        if difference > 0:
-
-            st.warning(
-                f"The simulated conditions create higher predicted "
-                f"electricity demand by {difference:.2f} kWh."
-            )
-
-        elif difference < 0:
-
-            st.success(
-                f"The simulated conditions create lower predicted "
-                f"electricity demand by {abs(difference):.2f} kWh."
-            )
-
-        else:
-
-            st.info(
-                "Both scenarios produce approximately the same prediction."
-            )
-
-        st.divider()
-
-        st.caption(
-            "ℹ️ The simulator uses the trained XGBoost model "
-            "to compare predictions under different input conditions. "
-            "The result is a model-based scenario estimate, not a "
-            "guarantee of actual energy savings."
-        )
-        
-# ============================================================
-# ANALYTICS
-# ============================================================
-
-elif page == "📊 Analytics":
-
-    st.title("📊 Analytics")
-
-    st.write(
-        "Simple analysis of your electricity consumption predictions."
+# -------------------- PREDICTION --------------------
+elif page == "XGBoost Prediction":
+    st.markdown(
+        '<div class="hero">'
+        '<div class="hero-title">🤖 XGBoost <span class="hero-accent">Prediction</span></div>'
+        '<div class="hero-text">Enter the conditions and generate an electricity-consumption estimate.</div>'
+        '</div>',
+        unsafe_allow_html=True
     )
 
-    st.divider()
-
-    # --------------------------------------------------------
-    # CHECK HISTORY
-    # --------------------------------------------------------
-
-    if len(st.session_state.prediction_history) == 0:
-
-        st.info(
-            "No prediction data available yet."
-        )
-
-        st.write(
-            "Go to 🤖 XGBoost Prediction and make a prediction "
-            "to see your analytics here."
-        )
-
-    else:
-
-        history_df = pd.DataFrame(
-            st.session_state.prediction_history
-        )
-
-        # ----------------------------------------------------
-        # CONSUMPTION OVERVIEW
-        # ----------------------------------------------------
-
-        st.subheader("⚡ Consumption Overview")
-
-        total_predictions = len(history_df)
-
-        average_consumption = history_df[
-            "Prediction (kWh)"
-        ].mean()
-
-        highest_consumption = history_df[
-            "Prediction (kWh)"
-        ].max()
-
-        lowest_consumption = history_df[
-            "Prediction (kWh)"
-        ].min()
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            st.metric(
-                "Predictions",
-                total_predictions
-            )
-
-        with col2:
-            st.metric(
-                "Average",
-                f"{average_consumption:.2f} kWh"
-            )
-
-        with col3:
-            st.metric(
-                "Highest",
-                f"{highest_consumption:.2f} kWh"
-            )
-
-        with col4:
-            st.metric(
-                "Lowest",
-                f"{lowest_consumption:.2f} kWh"
-            )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # LATEST PREDICTION
-        # ----------------------------------------------------
-
-        st.subheader("🔍 Latest Prediction")
-
-        latest = history_df.iloc[-1]
-
-        latest_consumption = latest["Prediction (kWh)"]
-
-        if latest_consumption < 5:
-
-            status = "🟢 Low Consumption"
-
-            explanation = (
-                "The predicted electricity consumption is relatively low."
-            )
-
-        elif latest_consumption < 8:
-
-            status = "🟡 Moderate Consumption"
-
-            explanation = (
-                "The predicted electricity consumption is in a moderate range."
-            )
-
-        else:
-
-            status = "🔴 High Consumption"
-
-            explanation = (
-                "The predicted electricity consumption is relatively high."
-            )
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            st.metric(
-                "Predicted Consumption",
-                f"{latest_consumption:.2f} kWh"
-            )
-
-        with col2:
-
-            st.metric(
-                "Status",
-                status
-            )
-
-        st.write(explanation)
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # LATEST INPUT CONDITIONS
-        # ----------------------------------------------------
-
-        st.subheader("📝 Latest Input Conditions")
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            st.metric(
-                "🌡️ Temperature",
-                f"{latest['Temperature']} °C"
-            )
-
-        with col2:
-            st.metric(
-                "💧 Humidity",
-                f"{latest['Humidity']} %"
-            )
-
-        with col3:
-            st.metric(
-                "🏠 Occupancy",
-                f"{latest['Occupancy']} %"
-            )
-
-        with col4:
-            st.metric(
-                "🕐 Hour",
-                int(latest["Hour"])
-            )
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.write(
-                f"**Weekend:** {latest['Weekend']}"
-            )
-
-        with col2:
-            st.write(
-                f"**Peak Hour:** {latest['Peak Hour']}"
-            )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # RECENT PREDICTIONS
-        # ----------------------------------------------------
-
-        st.subheader("📋 Recent Predictions")
-
-        display_df = history_df[
-            [
-                "Temperature",
-                "Humidity",
-                "Occupancy",
-                "Hour",
-                "Weekend",
-                "Peak Hour",
-                "Season",
-                "Prediction (kWh)"
-            ]
-        ]
-
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-# ============================================================
-# FORECAST
-# ============================================================
-
-elif page == "🔮 Forecast":
-
-    st.title("🔮 Forecast")
-
-    st.write(
-        "Estimate electricity consumption for the upcoming hours."
-    )
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # FORECAST INPUTS
-    # --------------------------------------------------------
-
-    st.subheader("⚙️ Forecast Settings")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        temperature = st.number_input(
-            "🌡️ Temperature (°C)",
-            value=25.0
-        )
-
-        humidity = st.number_input(
-            "💧 Humidity (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=60.0
-        )
-
-        occupancy = st.number_input(
-            "🏠 Occupancy (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=50.0
-        )
-
-        starting_hour = st.slider(
-            "🕐 Starting Hour",
-            min_value=0,
-            max_value=23,
-            value=12
-        )
-
-    with col2:
-
-        forecast_hours = st.slider(
-            "⏱️ Hours to Forecast",
-            min_value=1,
-            max_value=12,
-            value=6
-        )
-
-        day = st.number_input(
-            "📅 Day of Month",
-            min_value=1,
-            max_value=31,
-            value=15
-        )
-
-        month = st.number_input(
-            "📆 Month",
-            min_value=1,
-            max_value=12,
-            value=6
-        )
-
-        season = st.selectbox(
-            "🌤️ Season",
-            ["Winter", "Spring", "Summer", "Autumn"]
-        )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        is_weekend = st.selectbox(
-            "Weekend?",
-            ["No", "Yes"]
-        )
-
-    with col2:
-
-        is_peak_hour = st.selectbox(
-            "Peak Hour?",
-            ["No", "Yes"]
-        )
-
-    weekend_value = 1 if is_weekend == "Yes" else 0
-
-    peak_value = 1 if is_peak_hour == "Yes" else 0
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # GENERATE FORECAST
-    # --------------------------------------------------------
-
-    if st.button(
-        "🔮 Generate Forecast",
-        use_container_width=True
-    ):
-
-        forecast_results = []
-
-        for i in range(forecast_hours):
-
-            future_hour = (starting_hour + i) % 24
-
-            # Keep the same day-of-week value
-            # used by the current prediction system
-            future_day_of_week = 0
-
-            # ------------------------------------------------
-            # CREATE INPUT DATA
-            # ------------------------------------------------
-
-            input_data = pd.DataFrame({
-
-                "temperature_c": [temperature],
-
-                "humidity_percent": [humidity],
-
-                "occupancy_percent": [occupancy],
-
-                "hour": [future_hour],
-
-                "day": [day],
-
-                "month": [month],
-
-                "day_of_week": [future_day_of_week],
-
-                "is_weekend": [weekend_value],
-
-                "season": [season],
-
-                "is_peak_hour": [peak_value]
-
-            })
-
-            # ------------------------------------------------
-            # PREPROCESS INPUT
-            # ------------------------------------------------
-
-            processed_input = preprocessor.transform(
-                input_data
-            )
-
-            # ------------------------------------------------
-            # PREDICT
-            # ------------------------------------------------
-
-            prediction = model.predict(
-                processed_input
-            )[0]
-
-            # ------------------------------------------------
-            # SAVE RESULT
-            # ------------------------------------------------
-
-            forecast_results.append({
-
-                "Hour": f"{future_hour:02d}:00",
-
-                "Predicted Consumption (kWh)": round(
-                    float(prediction),
-                    2
+    section_title("📝 Input Conditions")
+    values = render_condition_inputs("pred")
+
+    st.write("")
+    if st.button("⚡ Predict Electricity Consumption", type="primary"):
+        try:
+            with st.spinner("Running the XGBoost model..."):
+                prediction = predict_consumption(**values)
+                add_history(
+                    (values["temperature"], values["humidity"], values["occupancy"],
+                     values["hour"], values["day"], values["month"], values["day_of_week"],
+                     values["is_weekend"], values["season"], values["is_peak_hour"]),
+                    prediction
                 )
+            label, css_class = status_for(prediction)
 
-            })
-
-        # ----------------------------------------------------
-        # CREATE FORECAST DATAFRAME
-        # ----------------------------------------------------
-
-        forecast_df = pd.DataFrame(
-            forecast_results
-        )
-
-        # ----------------------------------------------------
-        # FORECAST SUMMARY
-        # ----------------------------------------------------
-
-        st.subheader("📊 Forecast Summary")
-
-        average_forecast = forecast_df[
-            "Predicted Consumption (kWh)"
-        ].mean()
-
-        highest_forecast = forecast_df[
-            "Predicted Consumption (kWh)"
-        ].max()
-
-        lowest_forecast = forecast_df[
-            "Predicted Consumption (kWh)"
-        ].min()
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-
-            st.metric(
-                "📊 Average",
-                f"{average_forecast:.2f} kWh"
+            st.success("Prediction completed successfully.")
+            st.markdown(
+                f'<div class="result-card {css_class}">'
+                f'<div class="result-label">Predicted Electricity Consumption</div>'
+                f'<div class="result-number">{prediction:.2f} kWh</div>'
+                f'<div class="result-status">{label}</div>'
+                f'</div>',
+                unsafe_allow_html=True
             )
 
-        with col2:
+            fig = go.Figure(go.Bar(
+                x=["Predicted Consumption"], y=[prediction],
+                marker_color=COLOR_ACCENT, text=[f"{prediction:.2f}"], textposition="outside",
+            ))
+            fig.update_layout(title="Current Prediction")
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+        except Exception as e:
+            st.error("Prediction could not be completed.")
+            with st.expander("Technical details"):
+                st.code(str(e))
 
-            st.metric(
-                "⬆️ Highest",
-                f"{highest_forecast:.2f} kWh"
-            )
-
-        with col3:
-
-            st.metric(
-                "⬇️ Lowest",
-                f"{lowest_forecast:.2f} kWh"
-            )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # FUTURE CONSUMPTION
-        # ----------------------------------------------------
-
-        st.subheader("📋 Future Consumption")
-
-        st.dataframe(
-            forecast_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # ----------------------------------------------------
-        # SIMPLE ANALYSIS
-        # ----------------------------------------------------
-
-        st.subheader("💡 Forecast Analysis")
-
-        if highest_forecast > 8:
-
-            st.warning(
-                "⚠️ Some upcoming hours show relatively "
-                "high predicted electricity consumption."
-            )
-
-        elif average_forecast < 5:
-
-            st.success(
-                "🟢 The forecast shows relatively low "
-                "electricity consumption."
-            )
-
-        else:
-
-            st.info(
-                "🟡 The forecast shows moderate "
-                "electricity consumption."
-            )
-
-
-# ============================================================
-# MODEL INSIGHTS
-# ============================================================
-
-elif page == "🧠 Model Insights":
-
-    st.title("🧠 Model Insights")
-
-    st.write(
-        "Understand how the XGBoost model works and "
-        "which features influence electricity consumption."
+# -------------------- SIMULATOR --------------------
+elif page == "Energy Impact Simulator":
+    st.markdown(
+        '<div class="hero">'
+        '<div class="hero-title">🔬 Energy Impact <span class="hero-accent">Simulator</span></div>'
+        '<div class="hero-text">Compare two conditions using the trained XGBoost model.</div>'
+        '</div>',
+        unsafe_allow_html=True
     )
 
-    st.divider()
-
-    # --------------------------------------------------------
-    # MODEL OVERVIEW
-    # --------------------------------------------------------
-
-    st.subheader("🤖 Model Overview")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(
-            "Model",
-            "XGBoost"
-        )
-
-    with col2:
-        st.metric(
-            "Task",
-            "Regression"
-        )
-
-    with col3:
-        st.metric(
-            "Prediction",
-            "Electricity Consumption"
-        )
+    section_title("📌 Current Scenario")
+    current_values = render_condition_inputs("cur")
 
     st.divider()
+    section_title("🔬 Simulated Scenario")
+    sim_defaults = {"occupancy": 80.0, "hour": 18}
+    simulated_values = render_condition_inputs("sim", defaults=sim_defaults)
 
-    # --------------------------------------------------------
-    # FEATURE IMPORTANCE
-    # --------------------------------------------------------
+    if st.button("🔬 Simulate Energy Impact", type="primary"):
+        try:
+            with st.spinner("Running both scenarios through the model..."):
+                current = predict_consumption(**current_values)
+                simulated = predict_consumption(**simulated_values)
+            diff = simulated - current
+            pct = (diff / current * 100) if current else 0
 
-    st.subheader("📊 Feature Importance")
+            st.success("Simulation completed successfully.")
+            a, b, c = st.columns(3)
+            a.metric("Current", f"{current:.2f} kWh")
+            b.metric("Simulated", f"{simulated:.2f} kWh")
+            c.metric("Impact", f"{diff:+.2f} kWh", delta=f"{pct:+.1f}%")
 
+            if diff > 0:
+                st.warning(f"The simulated conditions increase predicted consumption by {diff:.2f} kWh.")
+            elif diff < 0:
+                st.success(f"The simulated conditions reduce predicted consumption by {abs(diff):.2f} kWh.")
+            else:
+                st.info("Both scenarios produce the same prediction.")
+
+            colors = [COLOR_ACCENT2, COLOR_ACCENT]
+            fig = go.Figure(go.Bar(
+                x=["Current", "Simulated"], y=[current, simulated],
+                marker_color=colors, text=[f"{current:.2f}", f"{simulated:.2f}"], textposition="outside",
+            ))
+            fig.update_layout(title="Current vs Simulated Consumption")
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+        except Exception as e:
+            st.error("Simulation could not be completed.")
+            with st.expander("Technical details"):
+                st.code(str(e))
+
+# -------------------- ANALYTICS --------------------
+elif page == "Analytics":
+    st.markdown(
+        '<div class="hero"><div class="hero-title">📊 Prediction <span class="hero-accent">Analytics</span></div>'
+        '<div class="hero-text">Understand the predictions generated during this session.</div></div>',
+        unsafe_allow_html=True
+    )
+    if not st.session_state.prediction_history:
+        empty_state("📊", "No prediction data yet", "Make a prediction first to see analytics here.")
+    else:
+        df = pd.DataFrame(st.session_state.prediction_history)
+        vals = df["Prediction (kWh)"]
+        a,b,c,d = st.columns(4)
+        a.metric("Predictions", len(df))
+        b.metric("Average", f"{vals.mean():.2f} kWh")
+        c.metric("Highest", f"{vals.max():.2f} kWh")
+        d.metric("Lowest", f"{vals.min():.2f} kWh")
+
+        st.divider()
+        section_title("📈 Consumption Trend")
+        fig = go.Figure(go.Scatter(
+            x=list(range(1, len(df)+1)), y=vals, mode="lines+markers",
+            line=dict(color=COLOR_ACCENT, width=3), marker=dict(size=8, color=COLOR_ACCENT),
+        ))
+        st.plotly_chart(style_fig(fig, x_title="Prediction Number"), use_container_width=True)
+
+        st.divider()
+        section_title("📋 Prediction Data")
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+# -------------------- FORECAST --------------------
+elif page == "Forecast":
+    st.markdown(
+        '<div class="hero"><div class="hero-title">🔮 Electricity <span class="hero-accent">Forecast</span></div>'
+        '<div class="hero-text">Generate a model-based estimate for upcoming hours.</div></div>',
+        unsafe_allow_html=True
+    )
+    values = render_condition_inputs("forecast", include_hour=False)
+    c1, c2 = st.columns(2)
+    with c1:
+        start = st.slider("🕐 Starting Hour", 0, 23, 12)
+    with c2:
+        hours = st.slider("⏱️ Hours to Forecast", 1, 12, 6)
+
+    if st.button("🔮 Generate Forecast", type="primary"):
+        try:
+            with st.spinner("Generating forecast..."):
+                results = []
+                for i in range(hours):
+                    h = (start + i) % 24
+                    pred = predict_consumption(
+                        temperature=values["temperature"], humidity=values["humidity"],
+                        occupancy=values["occupancy"], hour=h, day=values["day"],
+                        month=values["month"], day_of_week=values["day_of_week"],
+                        is_weekend=values["is_weekend"], season=values["season"],
+                        is_peak_hour=values["is_peak_hour"],
+                    )
+                    results.append({"Hour": f"{h:02d}:00", "Predicted Consumption (kWh)": round(pred, 2)})
+                fdf = pd.DataFrame(results)
+            st.success("Forecast generated successfully.")
+            vals = fdf["Predicted Consumption (kWh)"]
+            a,b,c = st.columns(3)
+            a.metric("Average", f"{vals.mean():.2f} kWh")
+            b.metric("Highest", f"{vals.max():.2f} kWh")
+            c.metric("Lowest", f"{vals.min():.2f} kWh")
+
+            fig = go.Figure(go.Scatter(
+                x=fdf["Hour"], y=vals, mode="lines+markers",
+                line=dict(color=COLOR_ACCENT, width=3), marker=dict(size=8, color=COLOR_ACCENT),
+                fill="tozeroy", fillcolor="rgba(56,189,248,.10)",
+            ))
+            st.plotly_chart(style_fig(fig, x_title="Hour"), use_container_width=True)
+            st.dataframe(fdf, use_container_width=True, hide_index=True)
+        except Exception as e:
+            st.error("Forecast could not be generated.")
+            with st.expander("Technical details"):
+                st.code(str(e))
+
+# -------------------- MODEL INSIGHTS --------------------
+elif page == "Model Insights":
+    st.markdown(
+        '<div class="hero"><div class="hero-title">🧠 Model <span class="hero-accent">Insights</span></div>'
+        '<div class="hero-text">Explore the model type and feature importance.</div></div>',
+        unsafe_allow_html=True
+    )
+    a,b,c = st.columns(3)
+    a.metric("Model", "XGBoost")
+    b.metric("Task", "Regression")
+    c.metric("Output", "Electricity Consumption")
+
+    st.divider()
+    section_title("📊 Feature Importance")
     try:
-
         importance = model.feature_importances_
-
-        feature_names = [
-            "Temperature",
-            "Humidity",
-            "Occupancy",
-            "Hour",
-            "Day",
-            "Month",
-            "Day of Week",
-            "Weekend",
-            "Peak Hour"
-        ]
-
-        # Make sure lengths match
-        if len(importance) == len(feature_names):
-
-            importance_df = pd.DataFrame({
-
-                "Feature": feature_names,
-
-                "Importance": importance
-
-            }).sort_values(
-                "Importance",
-                ascending=False
-            )
-
-            st.bar_chart(
-                importance_df.set_index("Feature")
-            )
-
-            st.dataframe(
-                importance_df,
-                use_container_width=True,
-                hide_index=True
-            )
-
+        if len(importance) == len(FEATURE_NAMES):
+            imp = pd.DataFrame({"Feature": FEATURE_NAMES, "Importance": importance}).sort_values("Importance")
+            fig = go.Figure(go.Bar(
+                x=imp["Importance"], y=imp["Feature"], orientation="h",
+                marker_color=COLOR_ACCENT,
+            ))
+            fig.update_layout(title="XGBoost Feature Importance")
+            st.plotly_chart(style_fig(fig, y_title="Feature", x_title="Importance"), use_container_width=True)
+            st.dataframe(imp.sort_values("Importance", ascending=False), use_container_width=True, hide_index=True)
         else:
-
-            st.warning(
-                "Feature importance is available, but the "
-                "feature names do not exactly match the model."
-            )
-
-    except Exception as e:
-
-        st.warning(
-            f"Unable to display feature importance: {e}"
-        )
+            st.warning("The saved model's feature count does not match the displayed feature names.")
+    except Exception:
+        st.warning("Feature importance is not available for this saved model.")
 
     st.divider()
-
-    # --------------------------------------------------------
-    # HOW XGBOOST WORKS
-    # --------------------------------------------------------
-
-    st.subheader("💡 How XGBoost Predicts")
-
-    st.write(
-        """
-        XGBoost is a machine learning algorithm based on
-        decision trees. It builds multiple trees sequentially,
-        where each new tree attempts to improve the errors made
-        by previous trees.
-
-        The model uses input conditions such as temperature,
-        humidity, occupancy, time and calendar information to
-        estimate electricity consumption.
-        """
+    section_title("💡 How XGBoost Predicts")
+    st.markdown(
+        '<div class="section-card">XGBoost is a tree-based machine-learning algorithm that builds multiple decision trees sequentially. '
+        'For this project, the trained regression model uses environmental, occupancy, time and calendar-related inputs '
+        'to estimate electricity consumption.</div>',
+        unsafe_allow_html=True
     )
 
-
-# ============================================================
-# SMART ALERTS
-# ============================================================
-
-elif page == "🚨 Smart Alerts":
-
-    st.title("🚨 Smart Alerts")
-
-    st.write(
-        "Monitor electricity consumption and identify "
-        "high or unusual predicted consumption."
+# -------------------- ALERTS --------------------
+elif page == "Smart Alerts":
+    st.markdown(
+        '<div class="hero"><div class="hero-title">🚨 Smart <span class="hero-accent">Alerts</span></div>'
+        '<div class="hero-text">Monitor the latest predicted consumption level.</div></div>',
+        unsafe_allow_html=True
     )
-
-    st.divider()
-
-    if len(st.session_state.prediction_history) == 0:
-
-        st.info(
-            "No prediction data available yet."
-        )
-
-        st.write(
-            "Go to 🤖 XGBoost Prediction and make a prediction "
-            "to activate smart alerts."
-        )
-
+    if not st.session_state.prediction_history:
+        empty_state("🚨", "No prediction data yet", "Make a prediction first to see alerts here.")
     else:
-
-        history_df = pd.DataFrame(
-            st.session_state.prediction_history
-        )
-
-        latest = history_df.iloc[-1]
-
-        latest_consumption = float(
-            latest["Prediction (kWh)"]
-        )
-
-        # ----------------------------------------------------
-        # CURRENT STATUS
-        # ----------------------------------------------------
-
-        st.subheader("⚡ Current Consumption Status")
-
-        if latest_consumption >= 8:
-
-            st.error(
-                "🔴 HIGH CONSUMPTION"
-            )
-
-            st.write(
-                f"The latest prediction is "
-                f"**{latest_consumption:.2f} kWh**, "
-                "which is above the high-consumption threshold."
-            )
-
-        elif latest_consumption >= 5:
-
-            st.warning(
-                "🟡 MODERATE CONSUMPTION"
-            )
-
-            st.write(
-                f"The latest prediction is "
-                f"**{latest_consumption:.2f} kWh**. "
-                "Consumption is within a moderate range."
-            )
-
+        df = pd.DataFrame(st.session_state.prediction_history)
+        latest = float(df.iloc[-1]["Prediction (kWh)"])
+        section_title("⚡ Current Consumption Status")
+        if latest >= 8:
+            st.error(f"🔴 HIGH CONSUMPTION — {latest:.2f} kWh")
+        elif latest >= 5:
+            st.warning(f"🟡 MODERATE CONSUMPTION — {latest:.2f} kWh")
         else:
+            st.success(f"🟢 LOW CONSUMPTION — {latest:.2f} kWh")
 
-            st.success(
-                "🟢 LOW CONSUMPTION"
-            )
-
-            st.write(
-                f"The latest prediction is "
-                f"**{latest_consumption:.2f} kWh**. "
-                "Consumption is relatively low."
-            )
+        high = int((df["Prediction (kWh)"] >= 8).sum())
+        moderate = int(((df["Prediction (kWh)"] >= 5) & (df["Prediction (kWh)"] < 8)).sum())
+        low = int((df["Prediction (kWh)"] < 5).sum())
+        a,b,c = st.columns(3)
+        a.metric("🔴 High", high)
+        b.metric("🟡 Moderate", moderate)
+        c.metric("🟢 Low", low)
 
         st.divider()
-
-        # ----------------------------------------------------
-        # ALERT SUMMARY
-        # ----------------------------------------------------
-
-        st.subheader("🚨 Alert Summary")
-
-        high_count = len(
-            history_df[
-                history_df["Prediction (kWh)"] >= 8
-            ]
-        )
-
-        moderate_count = len(
-            history_df[
-                (history_df["Prediction (kWh)"] >= 5)
-                &
-                (history_df["Prediction (kWh)"] < 8)
-            ]
-        )
-
-        low_count = len(
-            history_df[
-                history_df["Prediction (kWh)"] < 5
-            ]
-        )
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-
-            st.metric(
-                "🔴 High",
-                high_count
-            )
-
-        with col2:
-
-            st.metric(
-                "🟡 Moderate",
-                moderate_count
-            )
-
-        with col3:
-
-            st.metric(
-                "🟢 Low",
-                low_count
-            )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # RECOMMENDATION
-        # ----------------------------------------------------
-
-        st.subheader("💡 Recommendation")
-
-        if latest_consumption >= 8:
-
-            st.warning(
-                "Consider reducing unnecessary electricity usage "
-                "during this period. Check high-power appliances "
-                "and reduce their usage if possible."
-            )
-
-        elif latest_consumption >= 5:
-
-            st.info(
-                "Electricity consumption is moderate. "
-                "Continue monitoring usage during peak hours."
-            )
-
+        if latest >= 8:
+            st.warning("Consider reducing unnecessary electricity usage and monitoring high-power appliances.")
+        elif latest >= 5:
+            st.info("Consumption is moderate. Continue monitoring usage, especially during peak hours.")
         else:
+            st.success("The latest predicted consumption is relatively low.")
 
-            st.success(
-                "Electricity consumption is currently low. "
-                "Your predicted usage is within a lower range."
-            )
-
-
-# ============================================================
-# PREDICTION HISTORY
-# ============================================================
-
-elif page == "📋 Prediction History":
-
-    st.title("📋 Prediction History")
-
-    st.write(
-        "View your previous electricity consumption predictions."
+# -------------------- HISTORY --------------------
+elif page == "Prediction History":
+    st.markdown(
+        '<div class="hero"><div class="hero-title">📋 Prediction <span class="hero-accent">History</span></div>'
+        '<div class="hero-text">Review predictions generated during the current application session.</div></div>',
+        unsafe_allow_html=True
     )
-
-    st.divider()
-
-    if len(st.session_state.prediction_history) == 0:
-
-        st.info(
-            "No prediction history available yet."
-        )
-
-        st.write(
-            "Go to 🤖 XGBoost Prediction and make a prediction "
-            "to see it here."
-        )
-
+    if not st.session_state.prediction_history:
+        empty_state("📋", "No prediction history yet", "Predictions you make will be listed here.")
     else:
-
-        history_df = pd.DataFrame(
-            st.session_state.prediction_history
-        )
-
-        # ----------------------------------------------------
-        # SUMMARY
-        # ----------------------------------------------------
-
-        st.subheader("⚡ Consumption Overview")
-
-        total_predictions = len(history_df)
-
-        average_consumption = history_df[
-            "Prediction (kWh)"
-        ].mean()
-
-        highest_consumption = history_df[
-            "Prediction (kWh)"
-        ].max()
-
-        lowest_consumption = history_df[
-            "Prediction (kWh)"
-        ].min()
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-
-            st.metric(
-                "Predictions",
-                total_predictions
-            )
-
-        with col2:
-
-            st.metric(
-                "Average",
-                f"{average_consumption:.2f} kWh"
-            )
-
-        with col3:
-
-            st.metric(
-                "Highest",
-                f"{highest_consumption:.2f} kWh"
-            )
-
-        with col4:
-
-            st.metric(
-                "Lowest",
-                f"{lowest_consumption:.2f} kWh"
-            )
+        df = pd.DataFrame(st.session_state.prediction_history)
+        vals = df["Prediction (kWh)"]
+        a,b,c,d = st.columns(4)
+        a.metric("Predictions", len(df))
+        b.metric("Average", f"{vals.mean():.2f} kWh")
+        c.metric("Highest", f"{vals.max():.2f} kWh")
+        d.metric("Lowest", f"{vals.min():.2f} kWh")
 
         st.divider()
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
-        # ----------------------------------------------------
-        # PREDICTION RECORDS
-        # ----------------------------------------------------
-
-        st.subheader("📋 Recent Predictions")
-
-        display_df = history_df[
-            [
-                "Temperature",
-                "Humidity",
-                "Occupancy",
-                "Hour",
-                "Weekend",
-                "Peak Hour",
-                "Prediction (kWh)"
-            ]
-        ]
-
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # CLEAR HISTORY
-        # ----------------------------------------------------
-
-        if st.button(
-            "🗑️ Clear Prediction History",
-            use_container_width=True
-        ):
-
+        st.write("")
+        if st.button("🗑️ Clear Prediction History"):
             st.session_state.prediction_history = []
-
-            st.success(
-                "Prediction history cleared successfully."
-            )
-
             st.rerun()
