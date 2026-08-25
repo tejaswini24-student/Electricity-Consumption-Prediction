@@ -630,87 +630,102 @@ elif page == "🔬 Energy Impact Simulator":
 
         st.divider()
 
+               st.divider()
+
         # ----------------------------------------------------
-# VISUAL IMPACT ANALYSIS
-# ----------------------------------------------------
+        # VISUAL IMPACT ANALYSIS
+        # ----------------------------------------------------
 
-st.subheader("📈 Energy Impact Visualization")
+        st.subheader("📈 Energy Impact Visualization")
 
-# Create comparison data
-comparison_df = pd.DataFrame({
-    "Scenario": [
-        "Current",
-        "Simulated"
-    ],
-    "Consumption (kWh)": [
-        current_prediction,
-        scenario_prediction
-    ]
-})
+        # Create comparison data
+        comparison_df = pd.DataFrame({
+            "Scenario": [
+                "Current",
+                "Simulated"
+            ],
+            "Consumption (kWh)": [
+                current_prediction,
+                scenario_prediction
+            ]
+        })
 
-# Display chart
-st.bar_chart(
-    comparison_df.set_index("Scenario"),
-    height=350
-)
+        # Display chart
+        st.bar_chart(
+            comparison_df.set_index("Scenario"),
+            height=350
+        )
 
-# Impact indicator
-st.divider()
+        st.divider()
 
-if difference > 0:
+        # ----------------------------------------------------
+        # IMPACT INDICATOR
+        # ----------------------------------------------------
 
-    st.error(
-        f"⚠️ Energy Impact: +{difference:.2f} kWh "
-        f"({percentage_change:+.1f}%)"
-    )
+        if difference > 0:
 
-    st.write(
-        f"The simulated conditions are expected to consume "
-        f"**{difference:.2f} kWh more electricity** than the "
-        f"current scenario."
-    )
+            st.error(
+                f"⚠️ Energy Impact: +{difference:.2f} kWh "
+                f"({percentage_change:+.1f}%)"
+            )
 
-elif difference < 0:
+            st.write(
+                f"The simulated conditions are expected to consume "
+                f"**{difference:.2f} kWh more electricity** than the "
+                f"current scenario."
+            )
 
-    st.success(
-        f"🌱 Potential Energy Saving: "
-        f"{abs(difference):.2f} kWh "
-        f"({abs(percentage_change):.1f}%)"
-    )
+        elif difference < 0:
 
-    st.write(
-        f"The simulated conditions could reduce predicted "
-        f"consumption by **{abs(difference):.2f} kWh**."
-    )
+            st.success(
+                f"🌱 Potential Energy Saving: "
+                f"{abs(difference):.2f} kWh "
+                f"({abs(percentage_change):.1f}%)"
+            )
 
-else:
+            st.write(
+                f"The simulated conditions could reduce predicted "
+                f"consumption by **{abs(difference):.2f} kWh**."
+            )
 
-    st.info(
-        "ℹ️ No predicted change in electricity consumption."
-    )
+        else:
 
-# Simple interpretation
-st.subheader("🧠 What Changed?")
+            st.info(
+                "ℹ️ No predicted change in electricity consumption."
+            )
 
-if difference > 0:
+        st.divider()
 
-    st.write(
-        "The simulated scenario creates higher predicted "
-        "electricity demand compared with the current conditions."
-    )
+        # ----------------------------------------------------
+        # WHAT CHANGED?
+        # ----------------------------------------------------
 
-elif difference < 0:
+        st.subheader("🧠 What Changed?")
 
-    st.write(
-        "The simulated scenario creates lower predicted "
-        "electricity demand compared with the current conditions."
-    )
+        st.write(
+            "The simulated scenario is compared with the current "
+            "scenario using the trained XGBoost model."
+        )
 
-else:
+        if difference > 0:
 
-    st.write(
-        "Both scenarios produce approximately the same prediction."
-    )
+            st.warning(
+                "The simulated conditions create higher predicted "
+                "electricity demand."
+            )
+
+        elif difference < 0:
+
+            st.success(
+                "The simulated conditions create lower predicted "
+                "electricity demand."
+            )
+
+        else:
+
+            st.info(
+                "Both scenarios produce approximately the same prediction."
+            )
 
         st.divider()
 
@@ -720,7 +735,6 @@ else:
             "The result is a model-based scenario estimate, not a "
             "guarantee of actual energy savings."
         )
-
         
 # ============================================================
 # ANALYTICS
