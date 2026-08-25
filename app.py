@@ -13,6 +13,56 @@ preprocessor = joblib.load("xgboost_preprocessor.pkl")
 
 
 # ============================================================
+# PREDICTION FUNCTION
+# ============================================================
+
+def predict_consumption(
+    temperature,
+    humidity,
+    occupancy,
+    hour,
+    day,
+    month,
+    day_of_week,
+    is_weekend,
+    season,
+    is_peak_hour
+):
+
+    weekend_value = 1 if is_weekend == "Yes" else 0
+    peak_value = 1 if is_peak_hour == "Yes" else 0
+
+    input_data = pd.DataFrame({
+
+        "temperature_c": [temperature],
+
+        "humidity_percent": [humidity],
+
+        "occupancy_percent": [occupancy],
+
+        "hour": [hour],
+
+        "day": [day],
+
+        "month": [month],
+
+        "day_of_week": [day_of_week],
+
+        "is_weekend": [weekend_value],
+
+        "season": [season],
+
+        "is_peak_hour": [peak_value]
+    })
+
+    processed_input = preprocessor.transform(input_data)
+
+    prediction = model.predict(processed_input)[0]
+
+    return float(prediction)
+
+
+# ============================================================
 # PREDICTION HISTORY
 # ============================================================
 
@@ -47,6 +97,7 @@ with st.sidebar:
         [
             "🏠 Dashboard",
             "🤖 XGBoost Prediction",
+            "🔬 Energy Impact Simulator",
             "📊 Analytics",
             "🔮 Forecast",
             "🧠 Model Insights",
@@ -255,6 +306,363 @@ elif page == "🤖 XGBoost Prediction":
     )
 
 
+# ============================================================
+# ENERGY IMPACT SIMULATOR
+# ============================================================
+
+elif page == "🔬 Energy Impact Simulator":
+
+    st.title("🔬 Energy Impact Simulator")
+
+    st.write(
+        "Explore how changing electricity-use conditions "
+        "could affect predicted consumption."
+    )
+
+    st.info(
+        "💡 Change one or more conditions and compare the "
+        "new scenario with the current scenario."
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # CURRENT SCENARIO
+    # --------------------------------------------------------
+
+    st.subheader("📌 Current Scenario")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        current_temperature = st.number_input(
+            "🌡️ Current Temperature (°C)",
+            value=25.0,
+            key="sim_current_temperature"
+        )
+
+        current_humidity = st.number_input(
+            "💧 Current Humidity (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=60.0,
+            key="sim_current_humidity"
+        )
+
+        current_occupancy = st.number_input(
+            "🏠 Current Occupancy (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=50.0,
+            key="sim_current_occupancy"
+        )
+
+        current_hour = st.number_input(
+            "🕐 Current Hour",
+            min_value=0,
+            max_value=23,
+            value=12,
+            key="sim_current_hour"
+        )
+
+        current_day = st.number_input(
+            "📅 Current Day",
+            min_value=1,
+            max_value=31,
+            value=1,
+            key="sim_current_day"
+        )
+
+    with col2:
+
+        current_month = st.number_input(
+            "📆 Current Month",
+            min_value=1,
+            max_value=12,
+            value=1,
+            key="sim_current_month"
+        )
+
+        current_day_of_week = st.number_input(
+            "📅 Current Day of Week (0 = Monday)",
+            min_value=0,
+            max_value=6,
+            value=3,
+            key="sim_current_day_of_week"
+        )
+
+        current_weekend = st.selectbox(
+            "Weekend?",
+            ["No", "Yes"],
+            key="sim_current_weekend"
+        )
+
+        current_peak = st.selectbox(
+            "Peak Hour?",
+            ["No", "Yes"],
+            key="sim_current_peak"
+        )
+
+        current_season = st.selectbox(
+            "🌤️ Current Season",
+            ["Winter", "Spring", "Summer", "Autumn"],
+            key="sim_current_season"
+        )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # SIMULATED SCENARIO
+    # --------------------------------------------------------
+
+    st.subheader("🔬 Simulated Scenario")
+
+    st.write(
+        "Now change the conditions to test a different "
+        "energy-use scenario."
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        scenario_temperature = st.number_input(
+            "🌡️ Scenario Temperature (°C)",
+            value=25.0,
+            key="sim_scenario_temperature"
+        )
+
+        scenario_humidity = st.number_input(
+            "💧 Scenario Humidity (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=60.0,
+            key="sim_scenario_humidity"
+        )
+
+        scenario_occupancy = st.number_input(
+            "🏠 Scenario Occupancy (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=80.0,
+            key="sim_scenario_occupancy"
+        )
+
+        scenario_hour = st.number_input(
+            "🕐 Scenario Hour",
+            min_value=0,
+            max_value=23,
+            value=18,
+            key="sim_scenario_hour"
+        )
+
+        scenario_day = st.number_input(
+            "📅 Scenario Day",
+            min_value=1,
+            max_value=31,
+            value=1,
+            key="sim_scenario_day"
+        )
+
+    with col2:
+
+        scenario_month = st.number_input(
+            "📆 Scenario Month",
+            min_value=1,
+            max_value=12,
+            value=1,
+            key="sim_scenario_month"
+        )
+
+        scenario_day_of_week = st.number_input(
+            "📅 Scenario Day of Week (0 = Monday)",
+            min_value=0,
+            max_value=6,
+            value=3,
+            key="sim_scenario_day_of_week"
+        )
+
+        scenario_weekend = st.selectbox(
+            "Scenario Weekend?",
+            ["No", "Yes"],
+            key="sim_scenario_weekend"
+        )
+
+        scenario_peak = st.selectbox(
+            "Scenario Peak Hour?",
+            ["No", "Yes"],
+            key="sim_scenario_peak"
+        )
+
+        scenario_season = st.selectbox(
+            "🌤️ Scenario Season",
+            ["Winter", "Spring", "Summer", "Autumn"],
+            key="sim_scenario_season"
+        )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # SIMULATE
+    # --------------------------------------------------------
+
+    if st.button(
+        "🔬 Simulate Energy Impact",
+        use_container_width=True
+    ):
+
+        current_prediction = predict_consumption(
+            current_temperature,
+            current_humidity,
+            current_occupancy,
+            current_hour,
+            current_day,
+            current_month,
+            current_day_of_week,
+            current_weekend,
+            current_season,
+            current_peak
+        )
+
+        scenario_prediction = predict_consumption(
+            scenario_temperature,
+            scenario_humidity,
+            scenario_occupancy,
+            scenario_hour,
+            scenario_day,
+            scenario_month,
+            scenario_day_of_week,
+            scenario_weekend,
+            scenario_season,
+            scenario_peak
+        )
+
+        difference = scenario_prediction - current_prediction
+
+        if current_prediction != 0:
+            percentage_change = (
+                difference / current_prediction
+            ) * 100
+        else:
+            percentage_change = 0
+
+        st.success(
+            "Simulation completed successfully!"
+        )
+
+        st.divider()
+
+        # ----------------------------------------------------
+        # COMPARISON
+        # ----------------------------------------------------
+
+        st.subheader("📊 Scenario Comparison")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+
+            st.metric(
+                "Current Prediction",
+                f"{current_prediction:.2f} kWh"
+            )
+
+        with col2:
+
+            st.metric(
+                "Simulated Prediction",
+                f"{scenario_prediction:.2f} kWh"
+            )
+
+        with col3:
+
+            st.metric(
+                "Impact",
+                f"{difference:+.2f} kWh",
+                delta=f"{percentage_change:+.1f}%"
+            )
+
+        st.divider()
+
+        # ----------------------------------------------------
+        # IMPACT ANALYSIS
+        # ----------------------------------------------------
+
+        st.subheader("💡 Energy Impact Analysis")
+
+        if difference > 0:
+
+            st.warning(
+                f"⚠️ The simulated scenario increases predicted "
+                f"electricity consumption by "
+                f"**{difference:.2f} kWh** "
+                f"({percentage_change:.1f}%)."
+            )
+
+            st.write(
+                "The changed conditions result in a higher "
+                "predicted electricity demand."
+            )
+
+        elif difference < 0:
+
+            reduction = abs(difference)
+
+            st.success(
+                f"🌱 The simulated scenario reduces predicted "
+                f"electricity consumption by "
+                f"**{reduction:.2f} kWh** "
+                f"({abs(percentage_change):.1f}%)."
+            )
+
+            st.write(
+                "The simulated conditions show a lower "
+                "predicted electricity demand."
+            )
+
+        else:
+
+            st.info(
+                "ℹ️ The simulated scenario produces the same "
+                "predicted electricity consumption."
+            )
+
+        st.divider()
+
+        # ----------------------------------------------------
+        # VISUAL COMPARISON
+        # ----------------------------------------------------
+
+        st.subheader("📈 Current vs Simulated")
+
+        comparison_df = pd.DataFrame({
+
+            "Scenario": [
+                "Current",
+                "Simulated"
+            ],
+
+            "Consumption (kWh)": [
+                current_prediction,
+                scenario_prediction
+            ]
+        })
+
+        st.bar_chart(
+            comparison_df.set_index("Scenario")
+        )
+
+        st.divider()
+
+        st.caption(
+            "ℹ️ The simulator uses the trained XGBoost model "
+            "to compare predictions under different input conditions. "
+            "The result is a model-based scenario estimate, not a "
+            "guarantee of actual energy savings."
+        )
+
+        
 # ============================================================
 # ANALYTICS
 # ============================================================
