@@ -636,15 +636,21 @@ elif page == "🔬 Energy Impact Simulator":
 
         st.subheader("📈 Energy Impact Visualization")
 
-        # Create a static graph
+        # Import matplotlib only for this graph
+        import matplotlib.pyplot as plt
+        from io import BytesIO
+
+        # Create figure
         fig, ax = plt.subplots(figsize=(8, 4.5))
 
         scenarios = ["Current", "Simulated"]
+
         values = [
             current_prediction,
             scenario_prediction
         ]
 
+        # Create bars
         bars = ax.bar(
             scenarios,
             values,
@@ -653,6 +659,7 @@ elif page == "🔬 Energy Impact Simulator":
 
         # Add values above bars
         for bar, value in zip(bars, values):
+
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
                 bar.get_height(),
@@ -663,21 +670,25 @@ elif page == "🔬 Energy Impact Simulator":
                 fontweight="bold"
             )
 
+        # Title
         ax.set_title(
             "Current vs Simulated Electricity Consumption",
             fontsize=14,
             fontweight="bold"
         )
 
+        # Y-axis label
         ax.set_ylabel(
             "Electricity Consumption (kWh)"
         )
 
+        # Give some space above the highest bar
         ax.set_ylim(
             0,
             max(values) * 1.25
         )
 
+        # Horizontal grid
         ax.grid(
             axis="y",
             alpha=0.25
@@ -689,16 +700,26 @@ elif page == "🔬 Energy Impact Simulator":
 
         plt.tight_layout()
 
-        # Display as a static image
-        st.pyplot(
-            fig,
+        # Convert graph into a PNG image
+        image_buffer = BytesIO()
+
+        fig.savefig(
+            image_buffer,
+            format="png",
+            dpi=150,
+            bbox_inches="tight"
+        )
+
+        image_buffer.seek(0)
+
+        # Display as a FIXED IMAGE
+        st.image(
+            image_buffer,
             use_container_width=True
         )
 
-        # Close figure to prevent duplicate rendering
+        # Close figure
         plt.close(fig)
-
-        st.divider()
 
         # ----------------------------------------------------
         # IMPACT SUMMARY
