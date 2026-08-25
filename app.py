@@ -630,7 +630,7 @@ elif page == "🔬 Energy Impact Simulator":
 
         st.divider()
 
-        # ----------------------------------------------------
+                # ----------------------------------------------------
         # VISUAL IMPACT ANALYSIS
         # ----------------------------------------------------
 
@@ -648,7 +648,7 @@ elif page == "🔬 Energy Impact Simulator":
             ]
         })
 
-        # Display chart
+        # Display comparison chart
         st.bar_chart(
             comparison_df.set_index("Scenario"),
             height=350
@@ -657,75 +657,101 @@ elif page == "🔬 Energy Impact Simulator":
         st.divider()
 
         # ----------------------------------------------------
-        # IMPACT INDICATOR
+        # IMPACT SUMMARY
         # ----------------------------------------------------
 
-        if difference > 0:
+        st.subheader("⚡ Impact Summary")
 
-            st.error(
-                f"⚠️ Energy Impact: +{difference:.2f} kWh "
-                f"({percentage_change:+.1f}%)"
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                "Current Consumption",
+                f"{current_prediction:.2f} kWh"
             )
 
-            st.write(
-                f"The simulated conditions are expected to consume "
-                f"**{difference:.2f} kWh more electricity** than the "
-                f"current scenario."
+        with col2:
+            st.metric(
+                "Simulated Consumption",
+                f"{scenario_prediction:.2f} kWh"
             )
 
-        elif difference < 0:
+        with col3:
 
-            st.success(
-                f"🌱 Potential Energy Saving: "
-                f"{abs(difference):.2f} kWh "
-                f"({abs(percentage_change):.1f}%)"
-            )
+            if difference > 0:
 
-            st.write(
-                f"The simulated conditions could reduce predicted "
-                f"consumption by **{abs(difference):.2f} kWh**."
-            )
+                st.metric(
+                    "Change",
+                    f"+{difference:.2f} kWh",
+                    delta=f"+{percentage_change:.1f}%"
+                )
 
-        else:
+            elif difference < 0:
 
-            st.info(
-                "ℹ️ No predicted change in electricity consumption."
-            )
+                st.metric(
+                    "Change",
+                    f"{difference:.2f} kWh",
+                    delta=f"{percentage_change:.1f}%"
+                )
+
+            else:
+
+                st.metric(
+                    "Change",
+                    "0.00 kWh",
+                    delta="0.0%"
+                )
 
         st.divider()
 
         # ----------------------------------------------------
-        # WHAT CHANGED?
+        # IMPACT INTERPRETATION
         # ----------------------------------------------------
 
-        st.subheader("🧠 What Changed?")
-
-        st.write(
-            "The simulated scenario is compared with the current "
-            "scenario using the trained XGBoost model."
-        )
+        st.subheader("🧠 Impact Interpretation")
 
         if difference > 0:
 
             st.warning(
-                "The simulated conditions create higher predicted "
-                "electricity demand."
+                f"⚠️ The simulated scenario is predicted to use "
+                f"**{difference:.2f} kWh more electricity** "
+                f"than the current scenario."
+            )
+
+            st.write(
+                f"Predicted consumption increases from "
+                f"**{current_prediction:.2f} kWh** to "
+                f"**{scenario_prediction:.2f} kWh**, "
+                f"representing a **{percentage_change:.1f}% increase**."
             )
 
         elif difference < 0:
 
             st.success(
-                "The simulated conditions create lower predicted "
-                "electricity demand."
+                f"🌱 The simulated scenario is predicted to use "
+                f"**{abs(difference):.2f} kWh less electricity** "
+                f"than the current scenario."
+            )
+
+            st.write(
+                f"Predicted consumption decreases from "
+                f"**{current_prediction:.2f} kWh** to "
+                f"**{scenario_prediction:.2f} kWh**, "
+                f"representing a **{abs(percentage_change):.1f}% reduction**."
             )
 
         else:
 
             st.info(
-                "Both scenarios produce approximately the same prediction."
+                "ℹ️ The current and simulated scenarios have "
+                "the same predicted electricity consumption."
             )
 
         st.divider()
+
+        # ----------------------------------------------------
+        # MODEL-BASED NOTE
+        # ----------------------------------------------------
 
         st.caption(
             "ℹ️ The simulator uses the trained XGBoost model "
