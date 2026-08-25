@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import matplotlib.pyplot as plt
 
 
 # ============================================================
@@ -635,8 +636,6 @@ elif page == "🔬 Energy Impact Simulator":
         # ----------------------------------------------------
 
         st.subheader("📈 Energy Impact Visualization")
-
-        import matplotlib.pyplot as plt
 
         # Create a static graph
         fig, ax = plt.subplots(figsize=(8, 4.5))
