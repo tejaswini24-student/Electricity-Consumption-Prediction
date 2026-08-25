@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import matplotlib.pyplot as plt
 
 
 # ============================================================
@@ -630,29 +631,75 @@ elif page == "🔬 Energy Impact Simulator":
 
         st.divider()
 
-                # ----------------------------------------------------
-        # VISUAL IMPACT ANALYSIS
+        # ----------------------------------------------------
+        # STATIC ENERGY IMPACT GRAPH
         # ----------------------------------------------------
 
         st.subheader("📈 Energy Impact Visualization")
 
-        # Create comparison data
-        comparison_df = pd.DataFrame({
-            "Scenario": [
-                "Current",
-                "Simulated"
-            ],
-            "Consumption (kWh)": [
-                current_prediction,
-                scenario_prediction
-            ]
-        })
+        import matplotlib.pyplot as plt
 
-        # Display comparison chart
-        st.bar_chart(
-            comparison_df.set_index("Scenario"),
-            height=350
+        # Create a static graph
+        fig, ax = plt.subplots(figsize=(8, 4.5))
+
+        scenarios = ["Current", "Simulated"]
+        values = [
+            current_prediction,
+            scenario_prediction
+        ]
+
+        bars = ax.bar(
+            scenarios,
+            values,
+            width=0.5
         )
+
+        # Add values above bars
+        for bar, value in zip(bars, values):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height(),
+                f"{value:.2f} kWh",
+                ha="center",
+                va="bottom",
+                fontsize=12,
+                fontweight="bold"
+            )
+
+        ax.set_title(
+            "Current vs Simulated Electricity Consumption",
+            fontsize=14,
+            fontweight="bold"
+        )
+
+        ax.set_ylabel(
+            "Electricity Consumption (kWh)"
+        )
+
+        ax.set_ylim(
+            0,
+            max(values) * 1.25
+        )
+
+        ax.grid(
+            axis="y",
+            alpha=0.25
+        )
+
+        # Remove unnecessary borders
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        plt.tight_layout()
+
+        # Display as a static image
+        st.pyplot(
+            fig,
+            use_container_width=True
+        )
+
+        # Close figure to prevent duplicate rendering
+        plt.close(fig)
 
         st.divider()
 
@@ -665,93 +712,61 @@ elif page == "🔬 Energy Impact Simulator":
         col1, col2, col3 = st.columns(3)
 
         with col1:
+
             st.metric(
-                "Current Consumption",
+                "Current",
                 f"{current_prediction:.2f} kWh"
             )
 
         with col2:
+
             st.metric(
-                "Simulated Consumption",
+                "Simulated",
                 f"{scenario_prediction:.2f} kWh"
             )
 
         with col3:
 
-            if difference > 0:
-
-                st.metric(
-                    "Change",
-                    f"+{difference:.2f} kWh",
-                    delta=f"+{percentage_change:.1f}%"
-                )
-
-            elif difference < 0:
-
-                st.metric(
-                    "Change",
-                    f"{difference:.2f} kWh",
-                    delta=f"{percentage_change:.1f}%"
-                )
-
-            else:
-
-                st.metric(
-                    "Change",
-                    "0.00 kWh",
-                    delta="0.0%"
-                )
+            st.metric(
+                "Change",
+                f"{difference:+.2f} kWh",
+                delta=f"{percentage_change:+.1f}%"
+            )
 
         st.divider()
 
         # ----------------------------------------------------
-        # IMPACT INTERPRETATION
+        # WHAT CHANGED?
         # ----------------------------------------------------
 
-        st.subheader("🧠 Impact Interpretation")
+        st.subheader("🧠 What Changed?")
+
+        st.write(
+            "The simulated scenario is compared with the current "
+            "scenario using the trained XGBoost model."
+        )
 
         if difference > 0:
 
             st.warning(
-                f"⚠️ The simulated scenario is predicted to use "
-                f"**{difference:.2f} kWh more electricity** "
-                f"than the current scenario."
-            )
-
-            st.write(
-                f"Predicted consumption increases from "
-                f"**{current_prediction:.2f} kWh** to "
-                f"**{scenario_prediction:.2f} kWh**, "
-                f"representing a **{percentage_change:.1f}% increase**."
+                f"The simulated conditions create higher predicted "
+                f"electricity demand by {difference:.2f} kWh."
             )
 
         elif difference < 0:
 
             st.success(
-                f"🌱 The simulated scenario is predicted to use "
-                f"**{abs(difference):.2f} kWh less electricity** "
-                f"than the current scenario."
-            )
-
-            st.write(
-                f"Predicted consumption decreases from "
-                f"**{current_prediction:.2f} kWh** to "
-                f"**{scenario_prediction:.2f} kWh**, "
-                f"representing a **{abs(percentage_change):.1f}% reduction**."
+                f"The simulated conditions create lower predicted "
+                f"electricity demand by {abs(difference):.2f} kWh."
             )
 
         else:
 
             st.info(
-                "ℹ️ The current and simulated scenarios have "
-                "the same predicted electricity consumption."
+                "Both scenarios produce approximately the same prediction."
             )
 
         st.divider()
-
-        # ----------------------------------------------------
-        # MODEL-BASED NOTE
-        # ----------------------------------------------------
 
         st.caption(
             "ℹ️ The simulator uses the trained XGBoost model "
