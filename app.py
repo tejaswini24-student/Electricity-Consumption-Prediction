@@ -630,8 +630,6 @@ elif page == "🔬 Energy Impact Simulator":
 
         st.divider()
 
-               st.divider()
-
         # ----------------------------------------------------
         # VISUAL IMPACT ANALYSIS
         # ----------------------------------------------------
