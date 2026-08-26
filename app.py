@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import joblib
 import plotly.graph_objects as go
+from datetime import datetime
 from streamlit_option_menu import option_menu
 
 st.set_page_config(
@@ -33,6 +34,12 @@ except Exception as e:
 # -------------------- SESSION STATE --------------------
 if "prediction_history" not in st.session_state:
     st.session_state.prediction_history = []
+# The alert threshold is user-adjustable on the Smart Alerts page, but we
+# need a default before that page has ever been visited, so any page can
+# check "did this prediction cross the alert line" from the moment the
+# app starts.
+if "alert_threshold" not in st.session_state:
+    st.session_state.alert_threshold = 8.0
 
 # -------------------- THEME DEFINITIONS --------------------
 # Kept as a dict (rather than hardcoding hex codes throughout the file)
@@ -71,10 +78,11 @@ STATUS_STYLES = {
 # -------------------- SIDEBAR --------------------
 PAGES = [
     "Dashboard", "XGBoost Prediction", "Energy Impact Simulator",
-    "Analytics", "Forecast", "Model Insights", "Smart Alerts", "Prediction History",
+    "Bill Estimator", "Analytics", "Forecast", "Model Insights",
+    "Smart Alerts", "Prediction History",
 ]
 PAGE_ICONS = [
-    "house", "cpu", "shuffle", "bar-chart-line",
+    "house", "cpu", "shuffle", "cash-coin", "bar-chart-line",
     "cloud-sun", "diagram-3", "exclamation-triangle", "clock-history",
 ]
 
@@ -340,6 +348,61 @@ def add_history(values, prediction):
         "Prediction (kWh)": round(prediction, 2),
     })
 
+def get_recommendations(values, prediction, status_label):
+    """Rule-based (not model-based) energy-saving tips. Each 'if' checks
+    one input the user just entered, so the tips are specific to what
+    they described rather than generic advice - e.g. a peak-hour flag
+    always adds the peak-shifting tip, regardless of how high or low the
+    predicted number turned out to be."""
+    tips = []
+    if values.get("is_peak_hour") == "Yes":
+        tips.append("This falls in a peak hour. Shifting flexible loads (laundry, charging, dishwashing) to off-peak hours can lower both consumption and cost.")
+    if values.get("occupancy", 0) >= 70:
+        tips.append("Occupancy is high. Make sure unused rooms have lights, fans, and standby electronics switched off.")
+    if values.get("temperature", 0) >= 30 and values.get("season") in ("Summer",):
+        tips.append("Temperature is high for summer conditions. Setting AC to 24-26°C instead of lower uses noticeably less energy per hour.")
+    if values.get("is_weekend") == "Yes":
+        tips.append("Weekend usage patterns differ from weekdays - consider scheduling high-load appliances for off-peak weekend hours too.")
+    if "High" in status_label:
+        tips.append("Predicted consumption is in the high range. Check for appliances left running unnecessarily (water heaters, old refrigerators, always-on chargers).")
+    elif "Moderate" in status_label:
+        tips.append("Consumption is moderate. Small changes - LED lighting, unplugging idle electronics - can shift this toward the low range.")
+    else:
+        tips.append("Consumption is already in the low range. Maintaining current usage habits should keep costs down.")
+    return tips
+
+def build_report_text(values, prediction, status_label, bill_lines=None):
+    """Builds a plain-text report as one string, which st.download_button
+    can hand to the browser as a file. Plain text (not PDF) keeps this
+    dependency-free - no extra library needed just to produce a report."""
+    lines = [
+        "SMARTENERGY AI - PREDICTION REPORT",
+        "=" * 40,
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        "INPUT CONDITIONS",
+        "-" * 40,
+        f"Temperature       : {values.get('temperature')} C",
+        f"Humidity          : {values.get('humidity')} %",
+        f"Occupancy         : {values.get('occupancy')} %",
+        f"Hour              : {values.get('hour')}",
+        f"Day / Month       : {values.get('day')} / {values.get('month')}",
+        f"Day of Week       : {values.get('day_of_week')} (0=Mon, 6=Sun)",
+        f"Weekend           : {values.get('is_weekend')}",
+        f"Peak Hour         : {values.get('is_peak_hour')}",
+        f"Season            : {values.get('season')}",
+        "",
+        "PREDICTION",
+        "-" * 40,
+        f"Predicted Consumption : {prediction:.2f} kWh",
+        f"Status                : {status_label}",
+    ]
+    if bill_lines:
+        lines += ["", "BILL ESTIMATE", "-" * 40] + bill_lines
+    lines += ["", "ENERGY-SAVING RECOMMENDATIONS", "-" * 40]
+    lines += [f"- {tip}" for tip in get_recommendations(values, prediction, status_label)]
+    return "\n".join(lines)
+
 def section_title(title, subtitle=None):
     st.subheader(title)
     if subtitle:
@@ -529,27 +592,77 @@ elif page == "XGBoost Prediction":
                     prediction
                 )
             label, css_class = status_for(prediction)
-
-            st.success("Prediction completed successfully.")
-            st.markdown(
-                f'<div class="result-card {css_class}">'
-                f'<div class="result-label">Predicted Electricity Consumption</div>'
-                f'<div class="result-number">{prediction:.2f} kWh</div>'
-                f'<div class="result-status">{label}</div>'
-                f'</div>',
-                unsafe_allow_html=True
+            # Saved to session_state (not just local variables) because the
+            # Download Report button below triggers its own rerun when
+            # clicked - if the result only lived in local variables inside
+            # this `if st.button(...)` block, it would vanish the instant
+            # someone clicked Download, since the Predict button itself
+            # resets to False on that rerun.
+            st.session_state.last_prediction = dict(
+                values=values, prediction=prediction, label=label, css_class=css_class
             )
-
-            fig = go.Figure(go.Bar(
-                x=["Predicted Consumption"], y=[prediction],
-                marker_color=COLOR_ACCENT, text=[f"{prediction:.2f}"], textposition="outside",
-            ))
-            fig.update_layout(title="Current Prediction")
-            st.plotly_chart(style_fig(fig), use_container_width=True)
         except Exception as e:
+            st.session_state.pop("last_prediction", None)
             st.error("Prediction could not be completed.")
             with st.expander("Technical details"):
                 st.code(str(e))
+
+    if "last_prediction" in st.session_state:
+        lp = st.session_state.last_prediction
+        values, prediction, label, css_class = lp["values"], lp["prediction"], lp["label"], lp["css_class"]
+
+        st.success("Prediction completed successfully.")
+        st.markdown(
+            f'<div class="result-card {css_class}">'
+            f'<div class="result-label">Predicted Electricity Consumption</div>'
+            f'<div class="result-number">{prediction:.2f} kWh</div>'
+            f'<div class="result-status">{label}</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # 1. High Consumption Alert - compares against the user-adjustable
+        # threshold (set on the Smart Alerts page), not the fixed low/
+        # moderate/high bands used for the status label above.
+        if prediction >= st.session_state.alert_threshold:
+            st.error(
+                f"🚨 High Consumption Alert: {prediction:.2f} kWh is at or above "
+                f"your alert threshold of {st.session_state.alert_threshold:.1f} kWh."
+            )
+
+        fig = go.Figure(go.Bar(
+            x=["Predicted Consumption"], y=[prediction],
+            marker_color=COLOR_ACCENT, text=[f"{prediction:.2f}"], textposition="outside",
+        ))
+        fig.update_layout(title="Current Prediction")
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+        # 3. Energy-Saving Recommendations - generated from the specific
+        # inputs just entered (see get_recommendations), not generic text.
+        st.divider()
+        section_title("🌱 Energy-Saving Recommendations")
+        for tip in get_recommendations(values, prediction, label):
+            st.markdown(f"- {tip}")
+
+        # 4. Download Report - a plain-text file built from this exact
+        # prediction, generated fresh each render so it always matches
+        # what's on screen. If a bill estimate exists from this session,
+        # it's folded in automatically.
+        st.divider()
+        bill_lines = None
+        if "last_bill" in st.session_state:
+            lb = st.session_state.last_bill
+            bill_lines = [
+                f"Tariff             : Rs.{lb['tariff']:.2f} per kWh",
+                f"Estimated Bill     : Rs.{lb['cost']:,.2f}",
+            ]
+        report_text = build_report_text(values, prediction, label, bill_lines=bill_lines)
+        st.download_button(
+            "📥 Download Report",
+            data=report_text,
+            file_name=f"electricity_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            mime="text/plain",
+        )
 
 # -------------------- SIMULATOR --------------------
 elif page == "Energy Impact Simulator":
@@ -601,6 +714,53 @@ elif page == "Energy Impact Simulator":
             st.error("Simulation could not be completed.")
             with st.expander("Technical details"):
                 st.code(str(e))
+
+# -------------------- BILL ESTIMATOR --------------------
+elif page == "Bill Estimator":
+    st.markdown(
+        '<div class="hero"><div class="hero-title">💰 Electricity Bill <span class="hero-accent">Estimator</span></div>'
+        '<div class="hero-text">Estimated cost = your most recent predicted consumption × tariff.</div></div>',
+        unsafe_allow_html=True
+    )
+
+    history = st.session_state.prediction_history
+    if not history:
+        empty_state("💰", "No prediction data yet", "Go to XGBoost Prediction and make a prediction first, then come back here.")
+    else:
+        # Always the latest prediction - no checkbox, no "which value am I
+        # using" ambiguity. If you want to price a different prediction,
+        # make a new one on the Prediction page first.
+        prediction = history[-1]["Prediction (kWh)"]
+
+        section_title("⚡ Predicted Consumption", "Taken automatically from your most recent XGBoost prediction.")
+        st.metric("Predicted Consumption", f"{prediction:.2f} kWh")
+
+        st.divider()
+        section_title("💵 Enter Electricity Tariff")
+        # step=0.01 so + / - move by paise (₹0.01), not by 50 paise jumps -
+        # real tariffs are usually quoted to 2 decimal places.
+        tariff = st.number_input(
+            "Electricity tariff (₹ per kWh)", min_value=0.0, value=7.00, step=0.01, format="%.2f"
+        )
+
+        cost = prediction * tariff
+        st.markdown(
+            f'<div class="result-card">'
+            f'<div class="result-label">Estimated Electricity Bill</div>'
+            f'<div class="result-number">₹{cost:,.2f}</div>'
+            f'<div class="result-status">{prediction:.2f} kWh × ₹{tariff:.2f}/kWh</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+        st.caption(
+            "This is an estimate based only on your predicted consumption. "
+            "Actual electricity bills may include slabs, fixed charges, and taxes."
+        )
+
+        # Stored so the Prediction page's downloadable report can include
+        # this estimate automatically - build_report_text() just checks
+        # whether this key exists.
+        st.session_state.last_bill = dict(tariff=tariff, cost=cost)
 
 # -------------------- ANALYTICS --------------------
 elif page == "Analytics":
@@ -726,14 +886,23 @@ elif page == "Smart Alerts":
         '<div class="hero-text">Monitor the latest predicted consumption level.</div></div>',
         unsafe_allow_html=True
     )
+
+    section_title("🎚️ Alert Threshold", "Predictions at or above this value trigger a High Consumption Alert.")
+    # key="alert_threshold" ties this slider directly to the session_state
+    # value initialized at the top of the file, so the XGBoost Prediction
+    # page's alert check always reads whatever was last set here.
+    st.slider("Alert threshold (kWh)", 1.0, 15.0, key="alert_threshold", step=0.5)
+
+    st.divider()
     if not st.session_state.prediction_history:
         empty_state("🚨", "No prediction data yet", "Make a prediction first to see alerts here.")
     else:
         df = pd.DataFrame(st.session_state.prediction_history)
         latest = float(df.iloc[-1]["Prediction (kWh)"])
+        threshold = st.session_state.alert_threshold
         section_title("⚡ Current Consumption Status")
-        if latest >= 8:
-            st.error(f"🔴 HIGH CONSUMPTION — {latest:.2f} kWh")
+        if latest >= threshold:
+            st.error(f"🔴 ALERT — latest prediction {latest:.2f} kWh is at or above the {threshold:.1f} kWh threshold")
         elif latest >= 5:
             st.warning(f"🟡 MODERATE CONSUMPTION — {latest:.2f} kWh")
         else:
@@ -742,13 +911,15 @@ elif page == "Smart Alerts":
         high = int((df["Prediction (kWh)"] >= 8).sum())
         moderate = int(((df["Prediction (kWh)"] >= 5) & (df["Prediction (kWh)"] < 8)).sum())
         low = int((df["Prediction (kWh)"] < 5).sum())
-        a,b,c = st.columns(3)
+        exceeded = int((df["Prediction (kWh)"] >= threshold).sum())
+        a,b,c,d = st.columns(4)
         a.metric("🔴 High", high)
         b.metric("🟡 Moderate", moderate)
         c.metric("🟢 Low", low)
+        d.metric("🚨 Over Threshold", exceeded)
 
         st.divider()
-        if latest >= 8:
+        if latest >= threshold:
             st.warning("Consider reducing unnecessary electricity usage and monitoring high-power appliances.")
         elif latest >= 5:
             st.info("Consumption is moderate. Continue monitoring usage, especially during peak hours.")
@@ -777,6 +948,15 @@ elif page == "Prediction History":
         st.dataframe(df, use_container_width=True, hide_index=True)
 
         st.write("")
-        if st.button("🗑️ Clear Prediction History"):
-            st.session_state.prediction_history = []
-            st.rerun()
+        d1, d2 = st.columns(2)
+        with d1:
+            st.download_button(
+                "📥 Download Full History (CSV)",
+                data=df.to_csv(index=False),
+                file_name=f"prediction_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+            )
+        with d2:
+            if st.button("🗑️ Clear Prediction History"):
+                st.session_state.prediction_history = []
+                st.rerun()
