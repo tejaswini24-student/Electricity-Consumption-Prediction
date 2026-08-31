@@ -432,6 +432,22 @@ def style_fig(fig, y_title="Consumption (kWh)", x_title=None):
     fig.update_yaxes(showgrid=True, gridcolor=COLOR_GRID, title=y_title, color=COLOR_TEXT)
     return fig
 
+def remembered_defaults(key_prefix, fallback=None):
+    """Streamlit deletes a widget's stored value the moment it stops
+    being drawn on a run - which happens here every time you switch
+    pages, since only the current page's widgets are created. That
+    resets inputs to their hardcoded defaults on return. This function
+    reads a plain (non-widget) copy of the last values the user entered
+    for this form, stored separately in session_state so page switches
+    can't wipe it - see remember_values() below, which saves it."""
+    return st.session_state.get(f"{key_prefix}_remembered", fallback or {})
+
+def remember_values(key_prefix, values):
+    """Call this right after render_condition_inputs() so whatever the
+    user currently has entered survives a page switch and reappears
+    next time they open this form."""
+    st.session_state[f"{key_prefix}_remembered"] = values
+
 def render_condition_inputs(key_prefix, defaults=None, include_hour=True):
     """One shared input form used by the Prediction, Simulator and
     Forecast pages instead of copy-pasting the same 8-10 widgets three
@@ -578,7 +594,8 @@ elif page == "XGBoost Prediction":
     )
 
     section_title("📝 Input Conditions")
-    values = render_condition_inputs("pred")
+    values = render_condition_inputs("pred", defaults=remembered_defaults("pred"))
+    remember_values("pred", values)
 
     st.write("")
     if st.button("⚡ Predict Electricity Consumption", type="primary"):
@@ -675,12 +692,14 @@ elif page == "Energy Impact Simulator":
     )
 
     section_title("📌 Current Scenario")
-    current_values = render_condition_inputs("cur")
+    current_values = render_condition_inputs("cur", defaults=remembered_defaults("cur"))
+    remember_values("cur", current_values)
 
     st.divider()
     section_title("🔬 Simulated Scenario")
     sim_defaults = {"occupancy": 80.0, "hour": 18}
-    simulated_values = render_condition_inputs("sim", defaults=sim_defaults)
+    simulated_values = render_condition_inputs("sim", defaults=remembered_defaults("sim", sim_defaults))
+    remember_values("sim", simulated_values)
 
     if st.button("🔬 Simulate Energy Impact", type="primary"):
         try:
@@ -799,12 +818,15 @@ elif page == "Forecast":
         '<div class="hero-text">Generate a model-based estimate for upcoming hours.</div></div>',
         unsafe_allow_html=True
     )
-    values = render_condition_inputs("forecast", include_hour=False)
+    values = render_condition_inputs("forecast", include_hour=False, defaults=remembered_defaults("forecast"))
+    remember_values("forecast", values)
     c1, c2 = st.columns(2)
     with c1:
-        start = st.slider("🕐 Starting Hour", 0, 23, 12)
+        start = st.slider("🕐 Starting Hour", 0, 23, st.session_state.get("forecast_start_remembered", 12))
     with c2:
-        hours = st.slider("⏱️ Hours to Forecast", 1, 12, 6)
+        hours = st.slider("⏱️ Hours to Forecast", 1, 12, st.session_state.get("forecast_hours_remembered", 6))
+    st.session_state.forecast_start_remembered = start
+    st.session_state.forecast_hours_remembered = hours
 
     if st.button("🔮 Generate Forecast", type="primary"):
         try:
